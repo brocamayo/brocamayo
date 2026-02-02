@@ -1,25 +1,40 @@
-## Hi there 👋 I'm Broc
+## 👋 Hey, I'm Broc
 
-<!--
-**brocamayo/brocamayo** is a ✨ _special_ ✨ repository because its `README.md` appears on your GitHub profile.
--->
+> Program Manager • Investor • Builder  
+> Turning complex systems into clear decisions.
 
-### About Me
-- 🔭 I’m currently working on **program management, stock market analytics, and AI research projects**  
-- 🌱 I’m currently learning **advanced AI tools, data visualization (Power BI), and quantitative investing techniques**  
-- 👯 I’m looking to collaborate on **AI-driven investment tools, productivity automation projects, and open-source data analytics**  
-- 🤔 I’m looking for help with **scaling personal finance and investing tools using AI**  
-- 💬 Ask me about **stocks, investing strategies, program management, and Tesla/EV tech**  
-- 📫 How to reach me: [Email](mailto:brocmayo@gmail.com) | [LinkedIn](https://www.linkedin.com/in/brocmayo) | [YouTube](https://www.youtube.com/@StockBroc)  
-- 😄 Pronouns: He/Him  
-- ⚡ Fun fact: I commute in a Tesla, charge it strategically, and make videos breaking down complex finance topics into actionable insights  
+---
 
-### Skills & Tools
-- **Programming & Data:** Python, SQL, Power BI, Excel, Tableau  
-- **Finance & Investing:** Stock analysis, portfolio management, valuation, financial modeling  
-- **Project & Program Management:** Large-scale cross-functional projects, process improvement, operational efficiency  
-- **Other:** AI & Generative AI tools, automation, workflow optimization  
+## 🧠 What I Do
+I sit at the intersection of **program management, investing, and applied AI**.  
+My work focuses on breaking down complexity—whether that’s large cross-functional programs, financial markets, or data workflows—and rebuilding it into something scalable and actionable.
 
-### GitHub Activity
-- I enjoy building **open-source tools**, **automation scripts**, and **data analytics projects** that help investors and teams make smarter decisions.  
+---
 
+## 🔧 Current Focus
+```text
+• AI + automation for decision-making
+• Stock market analysis & portfolio strategy
+• Data visualization & analytics (Power BI)
+• Building repeatable systems (work + investing)
+
+
+def decision_framework(problem):
+    understand_constraints(problem)
+    reduce_noise()
+    identify_leverage()
+    execute_simply()
+
+
+### Why this version is strong
+- ✅ One paste, zero cleanup  
+- ✅ Reads like a **builder/operator**, not a student  
+- ✅ Signals **PM + AI + investing** without overclaiming  
+- ✅ Future-proof as you add repos and projects  
+
+If you want next, I can:
+- Add **minimal GitHub stats** (tasteful, not noisy)
+- Tune this for **AI / TPM / Program Manager recruiting**
+- Create a **“Projects Roadmap”** section to guide what you build next
+
+Just say the word.
