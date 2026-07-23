@@ -6,7 +6,7 @@ Program Manager @ **Tesla** — I build data systems, automations, and AI tools 
 - 🔭 Working on **program management, workflow automation, and AI/data projects**
 - 🌱 Currently going deeper on **AI tooling, Power BI, and quantitative investing**
 - 💬 Ask me about **automation, Power BI, program management, and Tesla/EV tech**
-- 📫 Reach me: [LinkedIn](https://www.linkedin.com/in/brocmayo) · [YouTube](https://www.youtube.com/@StockBroc)
+- 📫 Reach me: [LinkedIn](https://www.linkedin.com/in/brocmayo) · [YouTube](https://www.youtube.com/@BrocMayo)
 - ⚡ Fun fact: I commute in a Tesla and make videos breaking down complex finance topics into actionable insights
 
 ### 🚀 Featured Projects
