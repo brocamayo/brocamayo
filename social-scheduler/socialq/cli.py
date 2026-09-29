@@ -23,9 +23,11 @@ EXAMPLES_DIR = Path(__file__).resolve().parent.parent
 
 def setup_logging(base_dir: Path, verbose: bool) -> None:
     fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(message)s", "%Y-%m-%d %H:%M:%S")
-    console = logging.StreamHandler()
-    console.setFormatter(fmt)
-    handlers: list[logging.Handler] = [console]
+    handlers: list[logging.Handler] = []
+    if sys.stderr is not None:  # None under pythonw (the hidden scheduled task)
+        console = logging.StreamHandler()
+        console.setFormatter(fmt)
+        handlers.append(console)
     if base_dir.exists():
         file_handler = logging.FileHandler(base_dir / "socialq.log", encoding="utf-8")
         file_handler.setFormatter(fmt)
