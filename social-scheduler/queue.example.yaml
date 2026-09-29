@@ -1,0 +1,34 @@
+# One entry per video. Add entries by hand or with:
+#   python -m socialq add videos/my-video.mp4 --title "..." --caption "..." --tags a,b
+#
+# Required: video, publish_at. Everything else is optional.
+# platforms defaults to every platform enabled in config.yaml.
+# tags become YouTube tags and are appended as #hashtags on Instagram/TikTok.
+# A youtube/instagram/tiktok block overrides the shared text for that platform.
+
+- id: nvda-earnings-short
+  video: nvda-earnings.mp4
+  publish_at: "2026-10-05 17:00"
+  platforms: [youtube, instagram, tiktok]
+  title: "NVIDIA earnings in 60 seconds #Shorts"
+  caption: |
+    Here's what actually mattered in NVIDIA's earnings - and what I'm watching next quarter.
+    Not financial advice.
+  tags: [investing, stocks, nvidia]
+  youtube:
+    description: |
+      Full breakdown of NVIDIA's quarter in under a minute.
+
+      Not financial advice.
+  instagram:
+    thumb_offset_ms: 2000         # which frame to use as the cover
+  tiktok:
+    caption: "NVIDIA earnings in 60 seconds 📈 #investing #stocks #nvidia"
+
+- id: dividend-myth
+  video: dividend-myth.mp4
+  publish_at: "2026-10-07 17:00"
+  platforms: [youtube, tiktok]
+  title: "The dividend myth nobody talks about"
+  caption: "Dividends aren't free money. Here's why."
+  tags: [dividends, personalfinance]

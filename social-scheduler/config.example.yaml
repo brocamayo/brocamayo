@@ -1,0 +1,39 @@
+# socialq settings. Copy to config.yaml (or run `python -m socialq init`).
+
+timezone: America/Los_Angeles   # all times in queue.yaml are in this timezone
+media_dir: videos               # where your video files live (relative to this file)
+queue_file: queue.yaml
+state_file: state.json          # history of what's been posted - don't delete it
+
+# Your regular posting times. `socialq add` picks the next free one.
+# Formats: "mon 17:00", "mon,wed,fri 17:00", "daily 09:30", "weekdays 12:00", "weekends 10:00"
+slots:
+  - "mon,wed,fri 17:00"
+  - "sat 10:00"
+
+max_attempts: 3                 # give up on a platform after this many failures (see `socialq retry`)
+retry_delay_minutes: 30         # wait this long before retrying a failed upload
+
+youtube:
+  enabled: true
+  client_secrets: credentials/youtube_client_secret.json
+  token_file: credentials/youtube_token.json
+  privacy: public               # public | unlisted | private
+  category_id: "27"             # 22 = People & Blogs, 27 = Education, 28 = Science & Tech
+  made_for_kids: false
+
+instagram:
+  enabled: true
+  api_version: v25.0
+  graph_host: graph.facebook.com   # use graph.instagram.com if you set up "Instagram API with Instagram Login"
+  share_to_feed: true              # show the Reel on your main grid too
+
+tiktok:
+  enabled: true
+  # inbox  = video lands in your TikTok inbox as a draft, you tap Post (works right away)
+  # direct = posts automatically (needs TikTok to audit your app; before that only private posts work)
+  mode: inbox
+  privacy_level: PUBLIC_TO_EVERYONE   # direct mode only
+  redirect_uri: https://example.com/tiktok-callback   # must match your TikTok app's redirect URI
+  token_file: credentials/tiktok_token.json
+  is_aigc: false                  # set true if videos are AI-generated

@@ -1,0 +1,13 @@
+.env
+config.yaml
+queue.yaml
+state.json
+state.tmp
+socialq.log
+.socialq.lock
+credentials/
+videos/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
