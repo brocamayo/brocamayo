@@ -12,6 +12,7 @@ from typing import Any, Iterator
 
 PUBLISHED = "published"
 FAILED = "failed"
+WAITING = "waiting"
 
 
 class State:
@@ -55,6 +56,12 @@ class State:
             last_error=error,
             failed_at=_iso(at),
         )
+        self.save()
+
+    def record_waiting(self, post_id: str, platform: str, reason: str, at: datetime | None = None) -> None:
+        """Blocked on something the user must do (e.g. log in); doesn't count as an attempt."""
+        entry = self._entry(post_id, platform)
+        entry.update(status=WAITING, last_error=reason, failed_at=_iso(at))
         self.save()
 
     def reset(self, post_id: str, platform: str | None = None) -> None:

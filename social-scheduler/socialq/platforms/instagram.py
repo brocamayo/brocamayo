@@ -10,45 +10,66 @@ from pathlib import Path
 import requests
 
 from ..queue import Post
-from .base import PublishError, PublishResult, Publisher, error_text, log, poll
+from .base import NotLoggedIn, PublishError, PublishResult, Publisher, auth_hint, error_text, log, poll
 
 DEFAULT_API_VERSION = "v25.0"
 UPLOAD_HOST = "https://rupload.facebook.com/ig-api-upload"
 
 
-def _token_file(config) -> Path:
-    return config.path(config.instagram.get("token_file", "credentials/instagram_token.json"))
+def _base_url(settings: dict) -> str:
+    return f"https://{settings.get('graph_host', 'graph.facebook.com')}/{settings.get('api_version', DEFAULT_API_VERSION)}"
 
 
-def load_credentials(config) -> tuple[str, str]:
-    """Return (ig_user_id, access_token) from .env, falling back to the token file."""
-    user_id = os.environ.get("INSTAGRAM_USER_ID", "")
-    token = os.environ.get("INSTAGRAM_ACCESS_TOKEN", "")
-    token_file = _token_file(config)
-    if token_file.exists():
-        saved = json.loads(token_file.read_text())
-        user_id = user_id or saved.get("ig_user_id", "")
-        token = token or saved.get("access_token", "")
-        expires_at = saved.get("expires_at")
-        if expires_at and expires_at - time.time() < 7 * 86400:
-            log.warning("instagram: access token expires in under 7 days; "
-                        "run `python -m socialq auth instagram --refresh`")
-    if not user_id or not token:
-        raise PublishError(
-            "instagram: set INSTAGRAM_USER_ID and INSTAGRAM_ACCESS_TOKEN in .env "
-            "or run `python -m socialq auth instagram` (see README)"
-        )
-    return user_id, token
+def load_credentials(config, account: str) -> tuple[str, str]:
+    """Return (ig_user_id, access_token) saved by `socialq auth instagram`."""
+    token_file = config.path(config.settings(account, "instagram")["token_file"])
+    if not token_file.exists():
+        raise NotLoggedIn(f"instagram ({account}): not logged in. "
+                           f"Run `{auth_hint('instagram', account, config)} --token <token>` (see README)")
+    saved = json.loads(token_file.read_text())
+    expires_at = saved.get("expires_at")
+    if expires_at and expires_at - time.time() < 7 * 86400:
+        log.warning("instagram (%s): login expires in under 7 days; run `%s --refresh`",
+                    account, auth_hint("instagram", account, config))
+    if not saved.get("ig_user_id") or not saved.get("access_token"):
+        raise PublishError(f"instagram ({account}): {token_file} is missing ig_user_id or access_token")
+    return saved["ig_user_id"], saved["access_token"]
 
 
-def authorize(config, short_lived_token: str | None, refresh: bool = False) -> None:
-    """Swap a short-lived Meta user token for a ~60-day one and look up the IG account id."""
-    s = config.instagram
-    base = f"https://{s.get('graph_host', 'graph.facebook.com')}/{s.get('api_version', DEFAULT_API_VERSION)}"
+def _choose_ig_account(base: str, token: str, wanted: str | None) -> str:
+    pages = requests.get(f"{base}/me/accounts", params={
+        "fields": "name,instagram_business_account{id,username}", "access_token": token, "limit": 100,
+    }, timeout=60).json().get("data", [])
+    linked = [p["instagram_business_account"] | {"page": p["name"]}
+              for p in pages if p.get("instagram_business_account")]
+    if not linked:
+        raise PublishError("instagram: no Instagram professional account is linked to your Facebook Pages")
+    if wanted:
+        wanted = wanted.lstrip("@").lower()
+        for ig in linked:
+            if wanted in (ig["id"], str(ig.get("username", "")).lower()):
+                return ig["id"]
+        raise PublishError(f"instagram: @{wanted} isn't linked to any of your Facebook Pages "
+                           f"(found: {', '.join('@' + str(i.get('username')) for i in linked)})")
+    if len(linked) == 1:
+        return linked[0]["id"]
+    print("Which Instagram account is this?")
+    for i, ig in enumerate(linked, 1):
+        print(f"  {i}. @{ig.get('username')}  (Page: {ig['page']})")
+    choice = input("Number: ").strip()
+    if not choice.isdigit() or not 1 <= int(choice) <= len(linked):
+        raise PublishError("instagram: no account picked")
+    return linked[int(choice) - 1]["id"]
+
+
+def authorize(config, account: str, short_lived_token: str | None, refresh: bool = False,
+              ig_username: str | None = None) -> None:
+    """Swap a short-lived Meta user token for a ~60-day one and pick the IG account."""
+    base = _base_url(config.settings(account, "instagram"))
     app_id, app_secret = os.environ.get("META_APP_ID"), os.environ.get("META_APP_SECRET")
     if not app_id or not app_secret:
         raise PublishError("instagram: set META_APP_ID and META_APP_SECRET in .env first")
-    token_file = _token_file(config)
+    token_file = config.path(config.settings(account, "instagram")["token_file"])
     saved = json.loads(token_file.read_text()) if token_file.exists() else {}
     source = short_lived_token or (saved.get("access_token") if refresh else None)
     if not source:
@@ -64,24 +85,14 @@ def authorize(config, short_lived_token: str | None, refresh: bool = False) -> N
     token = data["access_token"]
     expires_at = int(time.time()) + int(data.get("expires_in", 60 * 86400))
 
-    ig_user_id = os.environ.get("INSTAGRAM_USER_ID") or saved.get("ig_user_id")
-    if not ig_user_id:
-        pages = requests.get(f"{base}/me/accounts", params={
-            "fields": "name,instagram_business_account{id,username}", "access_token": token,
-        }, timeout=60).json().get("data", [])
-        linked = [p for p in pages if p.get("instagram_business_account")]
-        if not linked:
-            raise PublishError("instagram: no Instagram professional account is linked to your Facebook Pages")
-        for page in linked:
-            ig = page["instagram_business_account"]
-            print(f"  Found @{ig.get('username')} (id {ig['id']}) on Page '{page['name']}'")
-        ig_user_id = linked[0]["instagram_business_account"]["id"]
+    ig_user_id = saved.get("ig_user_id") if refresh and not ig_username else None
+    ig_user_id = ig_user_id or _choose_ig_account(base, token, ig_username)
 
     token_file.parent.mkdir(parents=True, exist_ok=True)
     token_file.write_text(json.dumps(
         {"ig_user_id": ig_user_id, "access_token": token, "expires_at": expires_at}, indent=2))
-    print(f"Saved Instagram token for account {ig_user_id} to {token_file} "
-          f"(expires {time.strftime('%Y-%m-%d', time.localtime(expires_at))}).")
+    print(f"Instagram logged in for '{account}' (IG id {ig_user_id}); "
+          f"expires {time.strftime('%Y-%m-%d', time.localtime(expires_at))}.")
 
 
 class InstagramPublisher(Publisher):
@@ -90,8 +101,8 @@ class InstagramPublisher(Publisher):
     def publish(self, post: Post, video: Path) -> PublishResult:
         s = self.settings
         version = s.get("api_version", DEFAULT_API_VERSION)
-        base = f"https://{s.get('graph_host', 'graph.facebook.com')}/{version}"
-        user_id, token = load_credentials(self.config)
+        base = _base_url(s)
+        user_id, token = load_credentials(self.config, self.account)
 
         # 1. Create a Reels container that expects a resumable upload.
         params = {
@@ -138,7 +149,7 @@ class InstagramPublisher(Publisher):
              what="Instagram to process the video")
 
         # 4. Publish it.
-        resp = self.request("POST", f"{base}/{user_id}/media_publish",
+        resp = self.request("POST", f"{base}/{user_id}/media_publish", creates=True,
                             data={"creation_id": container_id, "access_token": token})
         if not resp.ok:
             raise PublishError(f"instagram: publish failed: {error_text(resp)}")

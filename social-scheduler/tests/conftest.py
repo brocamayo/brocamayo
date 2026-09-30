@@ -18,14 +18,21 @@ def project(tmp_path, monkeypatch):
 timezone: America/Los_Angeles
 slots: ["mon,wed,fri 17:00"]
 max_attempts: 2
-youtube: {enabled: true}
-instagram: {enabled: true}
-tiktok: {enabled: true, mode: direct, chunk_size_mb: 5}
+accounts:
+  main:
+    platforms: [youtube, instagram, tiktok, x]
+  second:
+    platforms: [youtube, tiktok]
+    delay_minutes: 60
+    tiktok: {mode: inbox}
+tiktok: {mode: direct, chunk_size_mb: 5}
+x: {redirect_uri: "https://example.com/cb"}
 """
     )
     monkeypatch.setattr("time.sleep", lambda s: None)
-    for var in ("INSTAGRAM_USER_ID", "INSTAGRAM_ACCESS_TOKEN", "NOTIFY_WEBHOOK_URL"):
+    for var in ("NOTIFY_WEBHOOK_URL", "X_CLIENT_SECRET"):
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("X_CLIENT_ID", "x-client")
     return tmp_path
 
 

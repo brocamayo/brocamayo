@@ -7,6 +7,7 @@ from conftest import FakeResponse, FakeSession
 from socialq.platforms.base import PublishError
 from socialq.platforms.instagram import InstagramPublisher
 from socialq.platforms.tiktok import MB, TikTokPublisher, chunk_ranges, plan_chunks
+from socialq.platforms.x import XPublisher
 from socialq.queue import load_queue
 
 
@@ -46,7 +47,8 @@ def test_chunk_size_is_clamped_to_tiktok_limits():
 # --- TikTok publishing ---------------------------------------------------------
 
 def save_tiktok_token(project):
-    (project / "credentials" / "tiktok_token.json").write_text(json.dumps({
+    (project / "credentials" / "main").mkdir(exist_ok=True)
+    (project / "credentials" / "main" / "tiktok_token.json").write_text(json.dumps({
         "access_token": "tt-token", "refresh_token": "r", "open_id": "o",
         "expires_at": time.time() + 3600, "refresh_expires_at": time.time() + 86400,
     }))
@@ -68,7 +70,7 @@ def test_tiktok_direct_post_flow(project, config):
                                               "publicaly_available_post_id": [7123]}}),
         ]),
     ])
-    result = TikTokPublisher(config, session=session).publish(post, video)
+    result = TikTokPublisher(config, "main", session=session).publish(post, video)
     assert result.remote_id == "7123"
 
     init = next(c for c in session.calls if "/video/init/" in c[1])[2]["json"]
@@ -89,7 +91,7 @@ def test_tiktok_rejects_privacy_the_app_is_not_allowed(project, config):
     session = FakeSession([("POST", "creator_info", FakeResponse(200, {
         "error": {"code": "ok"}, "data": {"privacy_level_options": ["SELF_ONLY"]}}))])
     with pytest.raises(PublishError, match="mode: inbox"):
-        TikTokPublisher(config, session=session).publish(post, video)
+        TikTokPublisher(config, "main", session=session).publish(post, video)
 
 
 def test_tiktok_inbox_mode(project, config):
@@ -102,7 +104,7 @@ def test_tiktok_inbox_mode(project, config):
         ("PUT", "upload.tiktok", FakeResponse(201)),
         ("POST", "status/fetch", FakeResponse(200, {**ok, "data": {"status": "SEND_TO_USER_INBOX"}})),
     ])
-    assert TikTokPublisher(config, session=session).publish(post, video).remote_id == "p2"
+    assert TikTokPublisher(config, "main", session=session).publish(post, video).remote_id == "p2"
     assert not any("creator_info" in c[1] for c in session.calls)
 
 
@@ -112,20 +114,24 @@ def test_tiktok_api_error_is_surfaced(project, config):
     session = FakeSession([("POST", "/inbox/video/init/", FakeResponse(
         403, {"error": {"code": "scope_not_authorized", "message": "nope"}}))])
     with pytest.raises(PublishError, match="scope_not_authorized"):
-        TikTokPublisher(config, session=session).publish(post, video)
+        TikTokPublisher(config, "main", session=session).publish(post, video)
 
 
 def test_tiktok_requires_login(project, config):
     post, video = one_post(project, config, "[tiktok]")
     with pytest.raises(PublishError, match="auth tiktok"):
-        TikTokPublisher(config, session=FakeSession([])).publish(post, video)
+        TikTokPublisher(config, "main", session=FakeSession([])).publish(post, video)
 
 
 # --- Instagram -----------------------------------------------------------------
 
-def test_instagram_reel_flow(project, config, monkeypatch):
-    monkeypatch.setenv("INSTAGRAM_USER_ID", "1789")
-    monkeypatch.setenv("INSTAGRAM_ACCESS_TOKEN", "ig-token")
+def save_instagram_token(project):
+    (project / "credentials" / "main").mkdir(exist_ok=True)
+    (project / "credentials" / "main" / "instagram_token.json").write_text(json.dumps({
+        "ig_user_id": "1789", "access_token": "ig-token", "expires_at": time.time() + 30 * 86400}))
+
+def test_instagram_reel_flow(project, config):
+    save_instagram_token(project)
     post, video = one_post(project, config, "[instagram]", "  instagram: {thumb_offset_ms: 1500}\n")
     session = FakeSession([
         ("POST", "/1789/media_publish", FakeResponse(200, {"id": "media-1"})),
@@ -135,7 +141,7 @@ def test_instagram_reel_flow(project, config, monkeypatch):
                         FakeResponse(200, {"status_code": "FINISHED"})]),
         ("GET", "/media-1", FakeResponse(200, {"permalink": "https://instagram.com/reel/abc"})),
     ])
-    result = InstagramPublisher(config, session=session).publish(post, video)
+    result = InstagramPublisher(config, "main", session=session).publish(post, video)
     assert (result.remote_id, result.url) == ("media-1", "https://instagram.com/reel/abc")
 
     create = session.calls[0][2]["data"]
@@ -146,9 +152,8 @@ def test_instagram_reel_flow(project, config, monkeypatch):
     assert upload["data"] == b"0123456789"
 
 
-def test_instagram_processing_error(project, config, monkeypatch):
-    monkeypatch.setenv("INSTAGRAM_USER_ID", "1789")
-    monkeypatch.setenv("INSTAGRAM_ACCESS_TOKEN", "ig-token")
+def test_instagram_processing_error(project, config):
+    save_instagram_token(project)
     post, video = one_post(project, config, "[instagram]")
     session = FakeSession([
         ("POST", "/1789/media", FakeResponse(200, {"id": "c1"})),
@@ -156,16 +161,99 @@ def test_instagram_processing_error(project, config, monkeypatch):
         ("GET", "/c1", FakeResponse(200, {"status_code": "ERROR", "status": "Error: bad codec"})),
     ])
     with pytest.raises(PublishError, match="bad codec"):
-        InstagramPublisher(config, session=session).publish(post, video)
+        InstagramPublisher(config, "main", session=session).publish(post, video)
 
 
-def test_retries_rate_limits(project, config, monkeypatch):
-    monkeypatch.setenv("INSTAGRAM_USER_ID", "1789")
-    monkeypatch.setenv("INSTAGRAM_ACCESS_TOKEN", "ig-token")
+def test_retries_rate_limits(project, config):
+    save_instagram_token(project)
     post, video = one_post(project, config, "[instagram]")
     session = FakeSession([
         ("POST", "/1789/media", [FakeResponse(429, {"error": "slow down"}), FakeResponse(400, {"error": "bad"})]),
     ])
     with pytest.raises(PublishError, match="bad"):
-        InstagramPublisher(config, session=session).publish(post, video)
+        InstagramPublisher(config, "main", session=session).publish(post, video)
     assert len(session.calls) == 2
+
+
+def test_instagram_publish_is_not_retried_on_server_error(project, config):
+    save_instagram_token(project)
+    post, video = one_post(project, config, "[instagram]")
+    session = FakeSession([
+        ("POST", "/1789/media_publish", FakeResponse(500, {"error": "maybe posted"})),
+        ("POST", "/1789/media", FakeResponse(200, {"id": "c1"})),
+        ("POST", "rupload.facebook.com", FakeResponse(200, {"success": True})),
+        ("GET", "/c1", FakeResponse(200, {"status_code": "FINISHED"})),
+    ])
+    with pytest.raises(PublishError, match="publish failed"):
+        InstagramPublisher(config, "main", session=session).publish(post, video)
+    assert sum("media_publish" in c[1] for c in session.calls) == 1
+
+
+def test_instagram_requires_login_per_account(project, config):
+    post, video = one_post(project, config, "[instagram]")
+    with pytest.raises(PublishError, match="auth instagram --account second"):
+        InstagramPublisher(config, "second", session=FakeSession([])).publish(post, video)
+
+
+# --- X ---------------------------------------------------------------------------
+
+def save_x_token(project, account="main", expires_in=3600):
+    (project / "credentials" / account).mkdir(exist_ok=True)
+    (project / "credentials" / account / "x_token.json").write_text(json.dumps({
+        "access_token": f"x-{account}", "refresh_token": "r1", "expires_at": time.time() + expires_in}))
+
+
+def test_x_video_post_flow(project, config):
+    save_x_token(project)
+    post, video = one_post(project, config, "[x]", "  x: {caption: 'Short and sweet https://example.com/a-very-long-link'}\n")
+    session = FakeSession([
+        ("POST", "/media/upload/initialize", FakeResponse(200, {"data": {"id": "m1"}})),
+        ("POST", "/media/upload/m1/append", FakeResponse(204)),
+        ("POST", "/media/upload/m1/finalize", FakeResponse(200, {"data": {
+            "id": "m1", "processing_info": {"state": "pending", "check_after_secs": 1}}})),
+        ("GET", "/media/upload?", [
+            FakeResponse(200, {"data": {"processing_info": {"state": "in_progress", "check_after_secs": 1}}}),
+            FakeResponse(200, {"data": {"processing_info": {"state": "succeeded"}}}),
+        ]),
+        ("POST", "/2/tweets", FakeResponse(201, {"data": {"id": "999", "text": "..."}})),
+    ])
+    result = XPublisher(config, "main", session=session).publish(post, video)
+    assert (result.remote_id, result.url) == ("999", "https://x.com/i/status/999")
+
+    init = session.calls[0][2]["json"]
+    assert init == {"media_type": "video/mp4", "total_bytes": 10, "media_category": "tweet_video"}
+    append = session.calls[1][2]
+    assert append["data"] == {"segment_index": "0"} and append["files"]["media"][1] == b"0123456789"
+    tweet = session.calls[-1][2]["json"]
+    assert tweet == {"text": "Short and sweet https://example.com/a-very-long-link", "media": {"media_ids": ["m1"]}}
+    assert all(c[2]["headers"]["Authorization"] == "Bearer x-main" for c in session.calls)
+
+
+def test_x_processing_failure(project, config):
+    save_x_token(project)
+    post, video = one_post(project, config, "[x]")
+    session = FakeSession([
+        ("POST", "/media/upload/initialize", FakeResponse(200, {"data": {"id": "m1"}})),
+        ("POST", "/media/upload/m1/append", FakeResponse(204)),
+        ("POST", "/media/upload/m1/finalize", FakeResponse(200, {"data": {
+            "processing_info": {"state": "failed", "error": {"message": "InvalidMedia"}}}})),
+    ])
+    with pytest.raises(PublishError, match="InvalidMedia"):
+        XPublisher(config, "main", session=session).publish(post, video)
+
+
+def test_x_refreshes_expired_token_and_keeps_new_refresh_token(project, config, monkeypatch):
+    from socialq.platforms import x as xmod
+
+    save_x_token(project, expires_in=-10)
+    sent = {}
+
+    def fake_post(url, data, headers, timeout):
+        sent.update(data)
+        return FakeResponse(200, {"access_token": "fresh", "refresh_token": "r2", "expires_in": 7200})
+
+    monkeypatch.setattr(xmod.requests, "post", fake_post)
+    assert xmod.access_token(config, "main") == "fresh"
+    assert sent == {"grant_type": "refresh_token", "refresh_token": "r1", "client_id": "x-client"}
+    saved = json.loads((project / "credentials" / "main" / "x_token.json").read_text())
+    assert saved["refresh_token"] == "r2"

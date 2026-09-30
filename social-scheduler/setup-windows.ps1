@@ -49,7 +49,7 @@ $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -Repetiti
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 2)
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings `
-    -Description "Posts queued videos to YouTube, Instagram and TikTok" -Force | Out-Null
+    -Description "Posts queued videos to YouTube, Instagram, TikTok and X" -Force | Out-Null
 Write-Host "Registered background task '$taskName' (runs every 10 minutes)." -ForegroundColor Green
 
 # Small helper so you can type `.\socialq list` instead of the full python path.
@@ -59,12 +59,11 @@ Write-Host "`n== Done ==" -ForegroundColor Cyan
 Write-Host @"
 
 Next steps (see README.md > Platform setup):
-  1. Fill in the keys in .env          (opening it now)
-  2. Set your timezone/slots in config.yaml
-  3. Log in to each platform:
-       .\socialq auth youtube
-       .\socialq auth instagram --token <token>
-       .\socialq auth tiktok
+  1. Fill in the developer-app keys in .env   (opening it now)
+  2. Check your accounts, timezone and posting slots in config.yaml
+  3. See which logins are still needed (it prints the exact commands):
+       .\socialq accounts
+     e.g. .\socialq auth youtube --account main
   4. Queue a video:
        .\socialq add videos\my-video.mp4 --title "..." --caption "..." --tags a,b
 

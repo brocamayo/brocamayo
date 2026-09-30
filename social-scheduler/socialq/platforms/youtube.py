@@ -5,40 +5,43 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..queue import Post
-from .base import PublishError, PublishResult, Publisher, log
+from .base import NotLoggedIn, PublishError, PublishResult, Publisher, auth_hint, log
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 CHUNK_SIZE = 8 * 1024 * 1024
 
 
-def _credentials(config, interactive: bool = False):
+def _credentials(config, account: str, interactive: bool = False):
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
 
-    settings = config.youtube
-    token_file = config.path(settings.get("token_file", "credentials/youtube_token.json"))
+    settings = config.settings(account, "youtube")
+    token_file = config.path(settings["token_file"])
     creds = None
     if token_file.exists():
         creds = Credentials.from_authorized_user_file(str(token_file), SCOPES)
-    if creds and creds.expired and creds.refresh_token:
+    if creds and creds.expired and creds.refresh_token and not interactive:
         creds.refresh(Request())
-    if not creds or not creds.valid:
+    if interactive or not creds or not creds.valid:
         if not interactive:
-            raise PublishError("youtube: not authorized yet. Run `python -m socialq auth youtube`.")
+            raise NotLoggedIn(f"youtube ({account}): not logged in. Run `{auth_hint('youtube', account, config)}`.")
         from google_auth_oauthlib.flow import InstalledAppFlow
 
         secrets = config.path(settings.get("client_secrets", "credentials/youtube_client_secret.json"))
         if not secrets.exists():
             raise PublishError(f"youtube: OAuth client file not found at {secrets} (see README)")
         flow = InstalledAppFlow.from_client_secrets_file(str(secrets), SCOPES)
-        creds = flow.run_local_server(port=0, prompt="consent", access_type="offline")
+        # select_account makes Google ask which account/channel to use every time.
+        creds = flow.run_local_server(port=0, prompt="consent select_account", access_type="offline")
     token_file.parent.mkdir(parents=True, exist_ok=True)
     token_file.write_text(creds.to_json())
     return creds
 
 
-def authorize(config) -> None:
-    _credentials(config, interactive=True)
+def authorize(config, account: str) -> None:
+    print(f"Logging in YouTube for account '{account}'. In the browser, pick the channel for this account.")
+    _credentials(config, account, interactive=True)
+    print(f"YouTube logged in for '{account}'.")
 
 
 class YouTubePublisher(Publisher):
@@ -50,7 +53,8 @@ class YouTubePublisher(Publisher):
         from googleapiclient.http import MediaFileUpload
 
         s = self.settings
-        youtube = build("youtube", "v3", credentials=_credentials(self.config), cache_discovery=False)
+        youtube = build("youtube", "v3", credentials=_credentials(self.config, self.account),
+                        cache_discovery=False)
         body = {
             "snippet": {
                 "title": post.youtube_title(),

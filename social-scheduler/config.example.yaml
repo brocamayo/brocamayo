@@ -14,26 +14,44 @@ slots:
 max_attempts: 3                 # give up on a platform after this many failures (see `socialq retry`)
 retry_delay_minutes: 30         # wait this long before retrying a failed upload
 
+# ---------------------------------------------------------------------------
+# Your accounts. Rename them to whatever you like (letters/numbers/dashes).
+# Each one logs in separately:  python -m socialq auth youtube --account main
+# Remove a platform from `platforms` to stop posting there for that account.
+# ---------------------------------------------------------------------------
+accounts:
+  main:
+    platforms: [youtube, instagram, tiktok, x]
+
+  second:
+    platforms: [youtube, instagram, tiktok, x]
+    delay_minutes: 60           # post an hour after `main` so it isn't flagged as a duplicate
+    # Any platform setting below can be overridden per account, e.g.:
+    # tiktok: {mode: direct}
+    # youtube: {privacy: unlisted}
+
+# ---------------------------------------------------------------------------
+# Platform settings shared by every account.
+# ---------------------------------------------------------------------------
 youtube:
-  enabled: true
-  client_secrets: credentials/youtube_client_secret.json
-  token_file: credentials/youtube_token.json
+  client_secrets: credentials/youtube_client_secret.json   # one file for all accounts
   privacy: public               # public | unlisted | private
   category_id: "27"             # 22 = People & Blogs, 27 = Education, 28 = Science & Tech
   made_for_kids: false
 
 instagram:
-  enabled: true
   api_version: v25.0
   graph_host: graph.facebook.com   # use graph.instagram.com if you set up "Instagram API with Instagram Login"
   share_to_feed: true              # show the Reel on your main grid too
 
 tiktok:
-  enabled: true
   # inbox  = video lands in your TikTok inbox as a draft, you tap Post (works right away)
   # direct = posts automatically (needs TikTok to audit your app; before that only private posts work)
   mode: inbox
   privacy_level: PUBLIC_TO_EVERYONE   # direct mode only
-  redirect_uri: https://example.com/tiktok-callback   # must match your TikTok app's redirect URI
-  token_file: credentials/tiktok_token.json
+  redirect_uri: https://brocamayo.github.io/   # must match your TikTok app's redirect URI exactly
   is_aigc: false                  # set true if videos are AI-generated
+
+x:
+  redirect_uri: https://brocamayo.github.io/   # must match your X app's callback URL exactly
+  max_chars: 280                  # raise to 25000 for accounts with X Premium

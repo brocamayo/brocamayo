@@ -21,6 +21,10 @@ class PublishError(RuntimeError):
     """A publish failed; the message is meant to be shown to a human."""
 
 
+class NotLoggedIn(PublishError):
+    """No (or expired) login for this account; waits without using up retries."""
+
+
 @dataclass
 class PublishResult:
     remote_id: str
@@ -30,35 +34,49 @@ class PublishResult:
 class Publisher:
     name = ""
 
-    def __init__(self, config: Config, session: requests.Session | None = None):
+    def __init__(self, config: Config, account: str, session: requests.Session | None = None):
         self.config = config
-        self.settings = config.platform(self.name)
+        self.account = account
+        self.settings = config.settings(account, self.name)
         self.session = session or requests.Session()
+
+    def token_file(self) -> Path:
+        return self.config.path(self.settings["token_file"])
 
     def publish(self, post: Post, video: Path) -> PublishResult:  # pragma: no cover
         raise NotImplementedError
 
     # --- helpers ----------------------------------------------------------
 
-    def request(self, method: str, url: str, *, retries: int = 3, **kwargs: Any) -> requests.Response:
-        """HTTP call with backoff on rate limits and server errors."""
+    def request(self, method: str, url: str, *, retries: int = 3, creates: bool = False,
+                **kwargs: Any) -> requests.Response:
+        """HTTP call with backoff on rate limits and server errors.
+
+        creates=True marks a call that makes the post go live: it is only retried on
+        HTTP 429 (definitely not processed), never on errors that might have gone through,
+        so a flaky connection can't double-post.
+        """
         kwargs.setdefault("timeout", 120)
+        retry_on = {429} if creates else RETRY_STATUSES
         for attempt in range(retries + 1):
             try:
                 resp = self.session.request(method, url, **kwargs)
             except (requests.ConnectionError, requests.Timeout) as exc:
-                if attempt == retries:
-                    raise PublishError(f"{self.name}: network error calling {url}: {exc}") from exc
+                if attempt == retries or creates:
+                    raise PublishError(f"{self.name}: network error calling {url.split('?')[0]}: {exc}") from exc
                 resp = None
-            if resp is not None and resp.status_code not in RETRY_STATUSES:
+            if resp is not None and (resp.status_code not in retry_on or attempt == retries):
                 return resp
-            if attempt == retries:
-                return resp  # type: ignore[return-value]
             delay = 2 ** (attempt + 1)
             reason = "network error" if resp is None else f"HTTP {resp.status_code}"
             log.warning("%s: %s on %s, retrying in %ss", self.name, reason, url.split("?")[0], delay)
             time.sleep(delay)
         raise AssertionError("unreachable")
+
+
+def auth_hint(platform: str, account: str, config: Config) -> str:
+    flag = f" --account {account}" if len(config.accounts) > 1 else ""
+    return f"python -m socialq auth {platform}{flag}"
 
 
 def poll(check: Callable[[], bool], *, timeout_s: float, interval_s: float, what: str) -> None:

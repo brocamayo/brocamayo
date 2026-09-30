@@ -37,7 +37,8 @@ def test_load_queue_defaults_and_overrides(config, project):
     )
     [post] = load_queue(config)
     assert post.id == "my-video"
-    assert post.platforms == ["youtube", "instagram", "tiktok"]
+    assert [str(t) for t in post.targets(config)] == [
+        "main/youtube", "main/instagram", "main/tiktok", "main/x", "second/youtube", "second/tiktok"]
     assert post.social_caption("instagram") == "Shared caption\n\n#investing #stocks"
     assert post.social_caption("tiktok") == "Custom tiktok caption"
     assert post.youtube_tags() == ["investing", "stocks"]
@@ -70,3 +71,28 @@ def test_validate_flags_missing_file_and_long_title(config, project):
     problems = validate(post, config)
     assert any("not found" in p for p in problems)
     assert any("youtube title" in p for p in problems)
+
+
+def test_validate_flags_unknown_account(config, project):
+    (project / "videos" / "a.mp4").write_bytes(b"v")
+    (project / "queue.yaml").write_text("- {video: a.mp4, publish_at: '2026-10-05 17:00', title: T, accounts: [nope]}\n")
+    [post] = load_queue(config)
+    problems = validate(post, config)
+    assert any("unknown account 'nope'" in p for p in problems)
+
+
+def test_single_account_config_still_works(project):
+    from socialq.config import load_config
+
+    (project / "config.yaml").write_text("youtube: {enabled: true}\ntiktok: {enabled: false}\n")
+    config = load_config(project / "config.yaml")
+    assert list(config.accounts) == ["main"]
+    assert config.accounts["main"].platforms == ["youtube"]
+    assert config.settings("main", "youtube")["token_file"] == "credentials/main/youtube_token.json"
+
+
+def test_account_settings_override_shared_ones(config):
+    assert config.settings("main", "tiktok")["mode"] == "direct"
+    assert config.settings("second", "tiktok")["mode"] == "inbox"
+    assert config.settings("second", "tiktok")["chunk_size_mb"] == 5
+    assert config.settings("second", "tiktok")["token_file"] == "credentials/second/tiktok_token.json"

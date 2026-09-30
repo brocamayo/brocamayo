@@ -56,7 +56,7 @@ def cmd_init(args) -> int:
     for sub in ("videos", "credentials"):
         (target / sub).mkdir(exist_ok=True)
     print(f"\nNext: fill in {target / '.env'} and {target / 'config.yaml'}, then run "
-          "`python -m socialq auth <platform>` for each platform.")
+          "`python -m socialq accounts` to see which logins you still need.")
     return 0
 
 
@@ -78,20 +78,26 @@ def cmd_add(args) -> int:
         "id": args.id or f"{when:%Y%m%d-%H%M}-{Path(args.video).stem}".lower().replace(" ", "-"),
         "video": video_ref,
         "publish_at": when.strftime(DATETIME_FORMAT),
-        "platforms": args.platforms or [p for p in PLATFORMS if config.enabled(p)],
-        "title": args.title or Path(args.video).stem.replace("-", " ").replace("_", " "),
-        "caption": args.caption or "",
     }
+    if args.accounts:
+        for name in args.accounts:
+            config.account(name)  # fail early on a typo
+        entry["accounts"] = args.accounts
+    if args.platforms:
+        entry["platforms"] = args.platforms
+    entry["title"] = args.title or Path(args.video).stem.replace("-", " ").replace("_", " ")
+    entry["caption"] = args.caption or ""
     if args.tags:
         entry["tags"] = [t.strip().lstrip("#") for t in args.tags.split(",") if t.strip()]
     if any(p.id == entry["id"] for p in posts):
         print(f"A post with id {entry['id']!r} already exists; pass --id", file=sys.stderr)
         return 1
     append_to_queue(config, entry)
-    print(f"Queued {entry['id']} for {entry['publish_at']} on {', '.join(entry['platforms'])}")
+    added = next(p for p in load_queue(config) if p.id == entry["id"])
+    targets = ", ".join(str(t) for t in added.targets(config)) or "nowhere (check your accounts)"
+    print(f"Queued {entry['id']} for {entry['publish_at']} -> {targets}")
     if when <= datetime.now(config.timezone):
         print("  note: that time has passed, so it will post on the next run")
-    added = next(p for p in load_queue(config) if p.id == entry["id"])
     for problem in validate(added, config):
         print(f"  warning: {problem}")
     return 0
@@ -106,19 +112,23 @@ def cmd_list(args) -> int:
         return 0
     now = datetime.now(config.timezone)
     for post in posts:
-        if not args.all and all(state.is_published(post.id, p) for p in post.platforms):
+        targets = post.targets(config)
+        if not args.all and targets and all(state.is_published(post.id, t.key) for t in targets):
             continue
         when = post.publish_at.astimezone(config.timezone).strftime("%a %b %d %H:%M")
         marker = "due " if post.publish_at <= now else "    "
         print(f"{marker}{when}  {post.id}")
-        for platform in post.platforms:
-            entry = state.get(post.id, platform)
+        width = max((len(t.key) for t in targets), default=10) + 2
+        for target in targets:
+            entry = state.get(post.id, target.key)
             status = entry.get("status", "pending")
-            if status == "failed":
+            if status == "waiting":
+                status += f": {entry.get('last_error', '')[:110]}"
+            elif status == "failed":
                 status += f" ({entry.get('attempts')}/{config.max_attempts}): {entry.get('last_error', '')[:100]}"
             elif status == "published":
                 status += f"  {entry.get('url') or entry.get('remote_id')}"
-            print(f"        {platform:<10} {status}")
+            print(f"        {target.key:<{width}} {status}")
     return 0
 
 
@@ -169,25 +179,63 @@ def cmd_watch(args) -> int:
 def cmd_retry(args) -> int:
     config = load_config(args.config)
     state = State(config.state_file)
-    state.reset(args.post_id, args.platform)
-    print(f"Reset {args.post_id}{' -> ' + args.platform if args.platform else ''}; "
-          "it will be retried on the next run.")
+    keys = list(state.data["posts"].get(args.post_id, {}))
+    if args.where:
+        keys = [k for k in keys if args.where in (k, *k.split("/"))]
+    if not keys:
+        print(f"Nothing recorded for {args.post_id} {args.where or ''}".rstrip(), file=sys.stderr)
+        return 1
+    for key in keys:
+        state.reset(args.post_id, key)
+    print(f"Reset {args.post_id} -> {', '.join(keys)}; it will be retried on the next run.")
+    return 0
+
+
+def cmd_accounts(args) -> int:
+    import json
+
+    config = load_config(args.config)
+    for account in config.accounts.values():
+        delay = f" (posts {account.delay_minutes} min after the scheduled time)" if account.delay_minutes else ""
+        print(f"{account.name}{delay}")
+        for platform in account.platforms:
+            token_file = config.path(config.settings(account.name, platform)["token_file"])
+            if not token_file.exists():
+                flag = f" --account {account.name}" if len(config.accounts) > 1 else ""
+                print(f"    {platform:<10} not logged in  ->  python -m socialq auth {platform}{flag}")
+                continue
+            info = ""
+            try:
+                saved = json.loads(token_file.read_text())
+                if saved.get("username"):
+                    info = f" as @{saved['username']}"
+                if platform == "instagram" and saved.get("expires_at"):
+                    info += f", expires {datetime.fromtimestamp(saved['expires_at']):%Y-%m-%d}"
+            except (ValueError, OSError):
+                pass
+            print(f"    {platform:<10} logged in{info}")
     return 0
 
 
 def cmd_auth(args) -> int:
     config = load_config(args.config)
     try:
+        account = config.account(args.account).name
+        if args.platform not in config.accounts[account].platforms:
+            print(f"note: {args.platform} isn't in account '{account}' platforms in config.yaml, "
+                  "so nothing will post there until you add it.")
         if args.platform == "youtube":
             from .platforms.youtube import authorize
-            authorize(config)
-            print("YouTube authorized.")
+            authorize(config, account)
         elif args.platform == "tiktok":
             from .platforms.tiktok import authorize
-            authorize(config)
+            authorize(config, account)
+        elif args.platform == "x":
+            from .platforms.x import authorize
+            authorize(config, account)
         else:
             from .platforms.instagram import authorize
-            authorize(config, args.token, refresh=args.refresh)
+            authorize(config, account, args.token, refresh=args.refresh, ig_username=args.ig_username)
     except PublishError as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -211,7 +259,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--caption", help="caption / description (tags are appended as #hashtags)")
     p.add_argument("--tags", help="comma separated, e.g. investing,stocks")
     p.add_argument("--at", help="'YYYY-MM-DD HH:MM' in your timezone; default = next free slot")
-    p.add_argument("-p", "--platforms", nargs="+", choices=PLATFORMS)
+    p.add_argument("-a", "--accounts", nargs="+", help="which accounts (default: all)")
+    p.add_argument("-p", "--platforms", nargs="+", choices=PLATFORMS, help="default: all the account has")
     p.add_argument("--id")
     p.set_defaults(func=cmd_add)
 
@@ -234,12 +283,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("retry", help="clear a failed/finished status so it posts again")
     p.add_argument("post_id")
-    p.add_argument("platform", nargs="?", choices=PLATFORMS)
+    p.add_argument("where", nargs="?", help="e.g. youtube, second, or second/youtube (default: all)")
     p.set_defaults(func=cmd_retry)
+
+    p = sub.add_parser("accounts", help="show each account and which platforms are logged in")
+    p.set_defaults(func=cmd_accounts)
 
     p = sub.add_parser("auth", help="log in to a platform")
     p.add_argument("platform", choices=PLATFORMS)
+    p.add_argument("-a", "--account", help="which account from config.yaml (needed if you have several)")
     p.add_argument("--token", help="instagram: short-lived token from Graph API Explorer")
+    p.add_argument("--ig-username", help="instagram: which linked IG account, e.g. @myhandle")
     p.add_argument("--refresh", action="store_true", help="instagram: extend the saved token")
     p.set_defaults(func=cmd_auth)
     return parser
