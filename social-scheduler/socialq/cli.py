@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .config import PLATFORMS, load_config
 from .platforms import PublishError
+from .platforms.base import auth_hint, command_name
 from .queue import DATETIME_FORMAT, append_to_queue, load_queue, parse_datetime, validate
 from .scheduler import run_once
 from .slots import next_free_slot
@@ -56,7 +57,7 @@ def cmd_init(args) -> int:
     for sub in ("videos", "credentials"):
         (target / sub).mkdir(exist_ok=True)
     print(f"\nNext: fill in {target / '.env'} and {target / 'config.yaml'}, then run "
-          "`python -m socialq accounts` to see which logins you still need.")
+          f"`{command_name()} accounts` to see which logins you still need.")
     return 0
 
 
@@ -108,7 +109,7 @@ def cmd_list(args) -> int:
     state = State(config.state_file)
     posts = load_queue(config)
     if not posts:
-        print("Queue is empty. Add one with: python -m socialq add videos/my-video.mp4")
+        print(f"Queue is empty. Add one with: {command_name()} add videos/my-video.mp4")
         return 0
     now = datetime.now(config.timezone)
     for post in posts:
@@ -201,8 +202,7 @@ def cmd_accounts(args) -> int:
         for platform in account.platforms:
             token_file = config.path(config.settings(account.name, platform)["token_file"])
             if not token_file.exists():
-                flag = f" --account {account.name}" if len(config.accounts) > 1 else ""
-                print(f"    {platform:<10} not logged in  ->  python -m socialq auth {platform}{flag}")
+                print(f"    {platform:<10} not logged in  ->  {auth_hint(platform, account.name, config)}")
                 continue
             info = ""
             try:

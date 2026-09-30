@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,9 +75,14 @@ class Publisher:
         raise AssertionError("unreachable")
 
 
+def command_name() -> str:
+    """How the user runs socialq: the setup scripts' shortcuts set SOCIALQ_CMD."""
+    return os.environ.get("SOCIALQ_CMD", "python -m socialq")
+
+
 def auth_hint(platform: str, account: str, config: Config) -> str:
     flag = f" --account {account}" if len(config.accounts) > 1 else ""
-    return f"python -m socialq auth {platform}{flag}"
+    return f"{command_name()} auth {platform}{flag}"
 
 
 def poll(check: Callable[[], bool], *, timeout_s: float, interval_s: float, what: str) -> None:

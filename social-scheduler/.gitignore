@@ -12,3 +12,5 @@ __pycache__/
 .pytest_cache/
 .venv/
 socialq.cmd
+sq
+launchd.log

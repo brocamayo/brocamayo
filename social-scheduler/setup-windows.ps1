@@ -53,7 +53,7 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Se
 Write-Host "Registered background task '$taskName' (runs every 10 minutes)." -ForegroundColor Green
 
 # Small helper so you can type `.\socialq list` instead of the full python path.
-Set-Content -Path "$root\socialq.cmd" -Value "@pushd `"%~dp0`" & `".venv\Scripts\python.exe`" -m socialq %* & popd"
+Set-Content -Path "$root\socialq.cmd" -Value "@pushd `"%~dp0`" & set SOCIALQ_CMD=.\socialq& `".venv\Scripts\python.exe`" -m socialq %* & popd"
 
 Write-Host "`n== Done ==" -ForegroundColor Cyan
 Write-Host @"

@@ -24,7 +24,9 @@ A scheduled job runs `python -m socialq run` every few minutes. It uploads whate
 
 **Windows, one click:** right-click `setup-windows.ps1` and choose **Run with PowerShell**. It installs everything, creates your config files, and sets up a hidden background task that runs every 10 minutes. After that, use `.\socialq <command>` from the folder. The only steps left are logging in to each platform (below).
 
-**Manual / macOS / Linux:**
+**Mac, one command:** put the folder in your home folder (for example `~/social-scheduler`, not Desktop or Documents, which macOS blocks background jobs from reading), then run `bash setup-mac.sh` in Terminal from inside it. It does the same as the Windows script, using a launchd job that runs every 10 minutes. After that, use `./sq <command>`, for example `./sq accounts`.
+
+**Manual / Linux:**
 
 ```bash
 cd social-scheduler
