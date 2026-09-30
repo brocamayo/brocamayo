@@ -137,6 +137,8 @@ Several steps ask for a **redirect URI** (a web address the login sends you back
 >
 > While the consent screen is in **Testing** mode, Google expires the login after 7 days. Publish the app under **Audience → Publish app** (you don't need verification for your own accounts) to keep the login working.
 
+**If the login lands on the wrong channel:** log in with `--channel @yourhandle` and the tool checks the channel and tells you if it's wrong. Channels inside a **Brand Account** are the usual cause: Google's login often won't let you pick them and falls back to the login's own channel. The reliable fix is to move the channel onto a Google login that has no channel of its own: in YouTube, switch to the channel → Settings → Advanced settings → **Move channel** → pick your Google account. Videos, subscribers and the @handle move with it. If that Google account already has a channel, first move that one into a new Brand Account, so nothing is deleted. Never use "Remove YouTube content" for this; it can delete more than one channel.
+
 ### Instagram (Reels)
 
 Each Instagram account must be a **Business or Creator** account linked to a Facebook Page that you manage.
