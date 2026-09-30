@@ -20,20 +20,81 @@ def _base_url(settings: dict) -> str:
     return f"https://{settings.get('graph_host', 'graph.facebook.com')}/{settings.get('api_version', DEFAULT_API_VERSION)}"
 
 
-def load_credentials(config, account: str) -> tuple[str, str]:
-    """Return (ig_user_id, access_token) saved by `socialq auth instagram`."""
-    token_file = config.path(config.settings(account, "instagram")["token_file"])
+IG_LOGIN_HOST = "graph.instagram.com"
+IG_TOKEN_LIFETIME = 60 * 86400
+
+
+def _token_path(config, account: str) -> Path:
+    return config.path(config.settings(account, "instagram")["token_file"])
+
+
+def _refresh_ig_login_token(token: str) -> dict | None:
+    """Extend an Instagram-Login token by another 60 days (only works once it's >24h old)."""
+    resp = requests.get(f"https://{IG_LOGIN_HOST}/refresh_access_token",
+                        params={"grant_type": "ig_refresh_token", "access_token": token}, timeout=60)
+    return resp.json() if resp.ok and "access_token" in resp.json() else None
+
+
+def load_credentials(config, account: str) -> tuple[str, str, str]:
+    """Return (ig_user_id, access_token, api_host) saved by `socialq auth instagram`."""
+    token_file = _token_path(config, account)
     if not token_file.exists():
         raise NotLoggedIn(f"instagram ({account}): not logged in. "
-                           f"Run `{auth_hint('instagram', account, config)} --token <token>` (see README)")
+                          f"Run `{auth_hint('instagram', account, config)} --token <token>` (see README)")
     saved = json.loads(token_file.read_text())
-    expires_at = saved.get("expires_at")
-    if expires_at and expires_at - time.time() < 7 * 86400:
-        log.warning("instagram (%s): login expires in under 7 days; run `%s --refresh`",
-                    account, auth_hint("instagram", account, config))
     if not saved.get("ig_user_id") or not saved.get("access_token"):
         raise PublishError(f"instagram ({account}): {token_file} is missing ig_user_id or access_token")
-    return saved["ig_user_id"], saved["access_token"]
+    host = saved.get("host") or config.settings(account, "instagram").get("graph_host", "graph.facebook.com")
+    expires_at = saved.get("expires_at")
+    if expires_at and expires_at < time.time():
+        raise NotLoggedIn(f"instagram ({account}): login expired. "
+                          f"Run `{auth_hint('instagram', account, config)} --token <new token>`")
+    if expires_at and expires_at - time.time() < 10 * 86400:
+        if host == IG_LOGIN_HOST and (fresh := _refresh_ig_login_token(saved["access_token"])):
+            saved.update(access_token=fresh["access_token"],
+                         expires_at=int(time.time()) + int(fresh.get("expires_in", IG_TOKEN_LIFETIME)))
+            token_file.write_text(json.dumps(saved, indent=2))
+            log.info("instagram (%s): login extended for another 60 days", account)
+        else:
+            log.warning("instagram (%s): login expires soon; run `%s --refresh`",
+                        account, auth_hint("instagram", account, config))
+    return saved["ig_user_id"], saved["access_token"], host
+
+
+def authorize_instagram_login(config, account: str, token: str, ig_username: str | None = None) -> None:
+    """Save a token from Meta's "API setup with Instagram login" (no Facebook Page needed)."""
+    version = config.settings(account, "instagram").get("api_version", DEFAULT_API_VERSION)
+    me = requests.get(f"https://{IG_LOGIN_HOST}/{version}/me",
+                      params={"fields": "user_id,username", "access_token": token}, timeout=60)
+    if not me.ok:
+        raise PublishError(f"instagram: that token didn't work: {error_text(me)}")
+    info = me.json()
+    username = info.get("username")
+    if ig_username and username and ig_username.lstrip("@").lower() != username.lower():
+        raise PublishError(f"instagram: that token is for @{username}, not @{ig_username.lstrip('@')}")
+
+    expires_in = None
+    secret = os.environ.get("INSTAGRAM_APP_SECRET")
+    if secret:  # swap a short-lived (1 hour) token for a 60-day one
+        resp = requests.get(f"https://{IG_LOGIN_HOST}/access_token", params={
+            "grant_type": "ig_exchange_token", "client_secret": secret, "access_token": token}, timeout=60)
+        if resp.ok and "access_token" in resp.json():
+            token, expires_in = resp.json()["access_token"], int(resp.json().get("expires_in", IG_TOKEN_LIFETIME))
+    if expires_in is None and (fresh := _refresh_ig_login_token(token)):  # already long-lived
+        token, expires_in = fresh["access_token"], int(fresh.get("expires_in", IG_TOKEN_LIFETIME))
+    if expires_in is None:
+        expires_in = IG_TOKEN_LIFETIME
+        if not secret:
+            print("note: if this token came from the dashboard's Generate token button and stops working")
+            print("      within an hour, add INSTAGRAM_APP_SECRET to .env and run this again.")
+
+    token_file = _token_path(config, account)
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    token_file.write_text(json.dumps({
+        "ig_user_id": str(info.get("user_id") or info["id"]), "username": username,
+        "access_token": token, "expires_at": int(time.time()) + expires_in, "host": IG_LOGIN_HOST,
+    }, indent=2))
+    print(f"Instagram logged in for '{account}' as @{username}. It renews itself automatically.")
 
 
 def _choose_ig_account(base: str, token: str, wanted: str | None) -> str:
@@ -65,12 +126,24 @@ def _choose_ig_account(base: str, token: str, wanted: str | None) -> str:
 def authorize(config, account: str, short_lived_token: str | None, refresh: bool = False,
               ig_username: str | None = None) -> None:
     """Swap a short-lived Meta user token for a ~60-day one and pick the IG account."""
+    if short_lived_token and short_lived_token.startswith("IG"):
+        return authorize_instagram_login(config, account, short_lived_token, ig_username)
+    token_file = _token_path(config, account)
+    saved = json.loads(token_file.read_text()) if token_file.exists() else {}
+    if refresh and saved.get("host") == IG_LOGIN_HOST:
+        fresh = _refresh_ig_login_token(saved["access_token"])
+        if not fresh:
+            raise PublishError("instagram: couldn't extend the login; generate a new token and run auth again")
+        saved.update(access_token=fresh["access_token"],
+                     expires_at=int(time.time()) + int(fresh.get("expires_in", IG_TOKEN_LIFETIME)))
+        token_file.write_text(json.dumps(saved, indent=2))
+        print(f"Instagram login for '{account}' extended.")
+        return
     base = _base_url(config.settings(account, "instagram"))
     app_id, app_secret = os.environ.get("META_APP_ID"), os.environ.get("META_APP_SECRET")
     if not app_id or not app_secret:
-        raise PublishError("instagram: set META_APP_ID and META_APP_SECRET in .env first")
-    token_file = config.path(config.settings(account, "instagram")["token_file"])
-    saved = json.loads(token_file.read_text()) if token_file.exists() else {}
+        raise PublishError("instagram: set META_APP_ID and META_APP_SECRET in .env first "
+                           "(or use a token from 'API setup with Instagram login', which starts with IG)")
     source = short_lived_token or (saved.get("access_token") if refresh else None)
     if not source:
         raise PublishError("instagram: pass --token <short-lived token> (or --refresh)")
@@ -101,8 +174,8 @@ class InstagramPublisher(Publisher):
     def publish(self, post: Post, video: Path) -> PublishResult:
         s = self.settings
         version = s.get("api_version", DEFAULT_API_VERSION)
-        base = _base_url(s)
-        user_id, token = load_credentials(self.config, self.account)
+        user_id, token, host = load_credentials(self.config, self.account)
+        base = f"https://{host}/{version}"
 
         # 1. Create a Reels container that expects a resumable upload.
         params = {

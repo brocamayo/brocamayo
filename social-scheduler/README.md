@@ -141,13 +141,21 @@ Several steps ask for a **redirect URI** (a web address the login sends you back
 
 ### Instagram (Reels)
 
-Each Instagram account must be a **Business or Creator** account linked to a Facebook Page that you manage.
+Each Instagram account must be a **Business or Creator** (professional) account. **No Facebook Page is needed.**
 
-1. At [developers.facebook.com](https://developers.facebook.com/), create an app of type **Business** and add the **Instagram** product.
-2. Put the App ID and App Secret in `.env` as `META_APP_ID` and `META_APP_SECRET`.
-3. In [Graph API Explorer](https://developers.facebook.com/tools/explorer/), select your app and generate a user token with `instagram_basic`, `instagram_content_publish`, `pages_show_list` and `pages_read_engagement`.
-4. Run `python -m socialq auth instagram --account main --token <that token>`. It swaps the token for a 60-day one, lists your linked Instagram accounts and asks which one this is. Repeat for `--account second` (a fresh token from step 3 works) and pick the other account. You can skip the question with `--ig-username @handle`.
-5. Before the 60 days are up, run `python -m socialq auth instagram --account main --refresh` (and the same for `second`). `socialq accounts` shows the expiry dates, and the log warns you 7 days ahead.
+1. At [developers.facebook.com/apps](https://developers.facebook.com/apps), click **Create app**. Pick the use case **"Manage messaging & content on Instagram"**, then finish creating the app.
+2. In the app, open **Instagram → API setup with Instagram login**. Copy the **Instagram app secret** into `.env` as `INSTAGRAM_APP_SECRET`.
+3. Under **Generate access tokens**, click **Add account** and log in to your first Instagram account, then click **Generate token** and copy it (it starts with `IG`).
+4. Run `./sq auth instagram --account brocmayo --token <that token>`. Repeat steps 3–4 for the second account (`--account snowballer`).
+
+The tool checks which @account each token belongs to (add `--ig-username @handle` to have it refuse a mismatch) and **renews the login automatically** before it expires. `./sq accounts` shows each login's @username.
+
+<details><summary>Older route: Instagram API with Facebook Login (needs a linked Facebook Page)</summary>
+
+1. Create a **Business** app and add the **Instagram** product; put its App ID and Secret in `.env` as `META_APP_ID` and `META_APP_SECRET`.
+2. In [Graph API Explorer](https://developers.facebook.com/tools/explorer/), generate a user token with `instagram_basic`, `instagram_content_publish`, `pages_show_list` and `pages_read_engagement`.
+3. Run `./sq auth instagram --account NAME --token <that token>`; it swaps it for a 60-day token and asks which linked Instagram account it is. Extend it before 60 days with `--refresh`.
+</details>
 
 Videos upload directly from your computer, so they don't need to be hosted anywhere. Instagram limits API publishing to about 50 posts per account per 24 hours.
 

@@ -257,3 +257,60 @@ def test_x_refreshes_expired_token_and_keeps_new_refresh_token(project, config, 
     assert sent == {"grant_type": "refresh_token", "refresh_token": "r1", "client_id": "x-client"}
     saved = json.loads((project / "credentials" / "main" / "x_token.json").read_text())
     assert saved["refresh_token"] == "r2"
+
+
+# --- Instagram API with Instagram Login (no Facebook Page) -------------------------
+
+def test_instagram_login_token_is_saved_with_username_and_host(project, config, monkeypatch):
+    from socialq.platforms import instagram as ig
+
+    calls = []
+
+    def fake_get(url, params, timeout):
+        calls.append(url)
+        if url.endswith("/me"):
+            return FakeResponse(200, {"user_id": "17841", "username": "brocmayo"})
+        if url.endswith("/refresh_access_token"):
+            return FakeResponse(200, {"access_token": "IGlong", "expires_in": 5184000})
+        raise AssertionError(url)
+
+    monkeypatch.delenv("INSTAGRAM_APP_SECRET", raising=False)
+    monkeypatch.setattr(ig.requests, "get", fake_get)
+    ig.authorize(config, "main", "IGshort", ig_username="@brocmayo")
+    saved = json.loads((project / "credentials" / "main" / "instagram_token.json").read_text())
+    assert saved["host"] == "graph.instagram.com" and saved["username"] == "brocmayo"
+    assert saved["ig_user_id"] == "17841" and saved["access_token"] == "IGlong"
+    assert calls[0] == "https://graph.instagram.com/v25.0/me"
+
+
+def test_instagram_login_token_for_wrong_account_is_rejected(config, monkeypatch):
+    from socialq.platforms import instagram as ig
+
+    monkeypatch.setattr(ig.requests, "get", lambda url, params, timeout: FakeResponse(
+        200, {"user_id": "1", "username": "snowballerapp"}))
+    with pytest.raises(PublishError, match="for @snowballerapp, not @brocmayo"):
+        ig.authorize(config, "main", "IGshort", ig_username="brocmayo")
+
+
+def test_instagram_login_posts_via_instagram_host_and_renews_before_expiry(project, config, monkeypatch):
+    from socialq.platforms import instagram as ig
+
+    (project / "credentials" / "main").mkdir(exist_ok=True)
+    token_file = project / "credentials" / "main" / "instagram_token.json"
+    token_file.write_text(json.dumps({"ig_user_id": "17841", "access_token": "IGold", "host": "graph.instagram.com",
+                                      "expires_at": time.time() + 3 * 86400}))
+    monkeypatch.setattr(ig.requests, "get", lambda url, params, timeout: FakeResponse(
+        200, {"access_token": "IGnew", "expires_in": 5184000}))
+    post, video = one_post(project, config, "[instagram]")
+    session = FakeSession([
+        ("POST", "graph.instagram.com/v25.0/17841/media_publish", FakeResponse(200, {"id": "m9"})),
+        ("POST", "graph.instagram.com/v25.0/17841/media", FakeResponse(200, {"id": "c1", "uri": "https://rupload.facebook.com/x/c1"})),
+        ("POST", "rupload.facebook.com", FakeResponse(200, {"success": True})),
+        ("GET", "graph.instagram.com/v25.0/c1", FakeResponse(200, {"status_code": "FINISHED"})),
+        ("GET", "graph.instagram.com/v25.0/m9", FakeResponse(200, {"permalink": "https://instagram.com/reel/z"})),
+    ])
+    result = InstagramPublisher(config, "main", session=session).publish(post, video)
+    assert result.url == "https://instagram.com/reel/z"
+    assert session.calls[0][2]["data"]["access_token"] == "IGnew"
+    saved = json.loads(token_file.read_text())
+    assert saved["access_token"] == "IGnew" and saved["expires_at"] > time.time() + 50 * 86400
