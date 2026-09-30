@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from ..queue import Post
 from .base import NotLoggedIn, PublishError, PublishResult, Publisher, auth_hint, log
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    # Read-only, used to show which channel an account is logged in to.
+    "https://www.googleapis.com/auth/youtube.readonly",
+]
 CHUNK_SIZE = 8 * 1024 * 1024
 
 
@@ -19,7 +24,8 @@ def _credentials(config, account: str, interactive: bool = False):
     token_file = config.path(settings["token_file"])
     creds = None
     if token_file.exists():
-        creds = Credentials.from_authorized_user_file(str(token_file), SCOPES)
+        # Use the scopes saved with the token: older logins may not have youtube.readonly.
+        creds = Credentials.from_authorized_user_file(str(token_file))
     if creds and creds.expired and creds.refresh_token and not interactive:
         creds.refresh(Request())
     if interactive or not creds or not creds.valid:
@@ -38,10 +44,46 @@ def _credentials(config, account: str, interactive: bool = False):
     return creds
 
 
+def channel_file(config, account: str) -> Path:
+    return config.path(config.settings(account, "youtube")["token_file"]).with_name("youtube_channel.json")
+
+
+def saved_channel(config, account: str) -> dict:
+    path = channel_file(config, account)
+    try:
+        return json.loads(path.read_text()) if path.exists() else {}
+    except ValueError:
+        return {}
+
+
 def authorize(config, account: str) -> None:
-    print(f"Logging in YouTube for account '{account}'. In the browser, pick the channel for this account.")
-    _credentials(config, account, interactive=True)
-    print(f"YouTube logged in for '{account}'.")
+    from googleapiclient.discovery import build
+
+    print(f"Logging in YouTube for account '{account}'.")
+    print("In the browser: pick the Google account, then on the next screen pick the CHANNEL")
+    print("for this account (channels you manage are listed separately, e.g. as Brand Accounts).\n")
+    creds = _credentials(config, account, interactive=True)
+
+    youtube = build("youtube", "v3", credentials=creds, cache_discovery=False)
+    items = youtube.channels().list(part="snippet", mine=True).execute().get("items", [])
+    if not items:
+        print(f"YouTube logged in for '{account}', but that Google account has no channel.")
+        return
+    channel = {"id": items[0]["id"], "title": items[0]["snippet"]["title"]}
+    print(f"\nLogged in to channel: {channel['title']}  (https://youtube.com/channel/{channel['id']})")
+
+    for other in config.accounts:
+        if other != account and saved_channel(config, other).get("id") == channel["id"]:
+            print(f"Heads up: account '{other}' is logged in to this same channel.")
+
+    answer = input(f"Is this the right channel for '{account}'? [Y/n] ").strip().lower()
+    if answer in ("n", "no"):
+        config.path(config.settings(account, "youtube")["token_file"]).unlink(missing_ok=True)
+        channel_file(config, account).unlink(missing_ok=True)
+        print(f"Logged out. Run `{auth_hint('youtube', account, config)}` again and pick the other channel.")
+        return
+    channel_file(config, account).write_text(json.dumps(channel, indent=2))
+    print(f"YouTube logged in for '{account}' -> {channel['title']}.")
 
 
 class YouTubePublisher(Publisher):
@@ -53,6 +95,9 @@ class YouTubePublisher(Publisher):
         from googleapiclient.http import MediaFileUpload
 
         s = self.settings
+        channel = saved_channel(self.config, self.account).get("title")
+        if channel:
+            log.info("youtube (%s): uploading to channel %s", self.account, channel)
         youtube = build("youtube", "v3", credentials=_credentials(self.config, self.account),
                         cache_discovery=False)
         body = {

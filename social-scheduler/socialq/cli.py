@@ -209,6 +209,10 @@ def cmd_accounts(args) -> int:
                 saved = json.loads(token_file.read_text())
                 if saved.get("username"):
                     info = f" as @{saved['username']}"
+                if platform == "youtube":
+                    from .platforms.youtube import saved_channel
+                    title = saved_channel(config, account.name).get("title")
+                    info = f" to channel: {title}" if title else " (channel unknown - log in again to see it)"
                 if platform == "instagram" and saved.get("expires_at"):
                     info += f", expires {datetime.fromtimestamp(saved['expires_at']):%Y-%m-%d}"
             except (ValueError, OSError):
