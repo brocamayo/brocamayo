@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import os
 from pathlib import Path
 
 from ..queue import Post
@@ -12,7 +14,12 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     # Read-only, used to show which channel an account is logged in to.
     "https://www.googleapis.com/auth/youtube.readonly",
+    # Which Google login was used, so a wrong pick can be explained.
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
 ]
+# Google may return the granted scopes in a different form; don't treat that as an error.
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 CHUNK_SIZE = 8 * 1024 * 1024
 
 
@@ -56,34 +63,71 @@ def saved_channel(config, account: str) -> dict:
         return {}
 
 
-def authorize(config, account: str) -> None:
+def _google_email(creds) -> str | None:
+    """Email from the login's ID token (display only, so no signature check)."""
+    token = getattr(creds, "id_token", None)
+    if not token or token.count(".") != 2:
+        return None
+    payload = token.split(".")[1]
+    try:
+        return json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))).get("email")
+    except ValueError:
+        return None
+
+
+def _logout(config, account: str) -> None:
+    config.path(config.settings(account, "youtube")["token_file"]).unlink(missing_ok=True)
+    channel_file(config, account).unlink(missing_ok=True)
+
+
+def authorize(config, account: str, want: str | None = None) -> bool:
+    """Log in; if `want` (e.g. "@brocmayo") is given, verify the login landed on that channel."""
     from googleapiclient.discovery import build
 
     print(f"Logging in YouTube for account '{account}'.")
-    print("In the browser: pick the Google account, then on the next screen pick the CHANNEL")
-    print("for this account (channels you manage are listed separately, e.g. as Brand Accounts).\n")
     creds = _credentials(config, account, interactive=True)
-
     youtube = build("youtube", "v3", credentials=creds, cache_discovery=False)
+    email = _google_email(creds)
+
     items = youtube.channels().list(part="snippet", mine=True).execute().get("items", [])
     if not items:
-        print(f"YouTube logged in for '{account}', but that Google account has no channel.")
-        return
-    channel = {"id": items[0]["id"], "title": items[0]["snippet"]["title"]}
-    print(f"\nLogged in to channel: {channel['title']}  (https://youtube.com/channel/{channel['id']})")
+        _logout(config, account)
+        print(f"{email or 'That Google login'} has no YouTube channel. Run it again and pick another login.")
+        return False
+    got = {"id": items[0]["id"], "title": items[0]["snippet"]["title"],
+           "handle": items[0]["snippet"].get("customUrl")}
+    print(f"\nSigned in as:  {email or '(unknown Google login)'}")
+    print(f"Channel:       {got['title']}" + (f" ({got['handle']})" if got["handle"] else ""))
+
+    if want:
+        handle = "@" + want.lstrip("@")
+        found = youtube.channels().list(part="snippet", forHandle=handle).execute().get("items", [])
+        if not found:
+            _logout(config, account)
+            print(f"\nCouldn't find a channel with the handle {handle}. Check the spelling and try again.")
+            return False
+        target = found[0]
+        if target["id"] != got["id"]:
+            _logout(config, account)
+            print(f"\n❌ That's not {handle}. {handle} is the channel named \"{target['snippet']['title']}\".")
+            print("Run the same command again. On Google's \"Choose an account\" screen, click the row named")
+            print(f"\"{target['snippet']['title']}\" (it may have no email under it, or say \"Brand Account\"),")
+            print("instead of an email address. If there's no such row, click the email that manages")
+            print(f"{handle} and look for a \"Choose a channel\" screen right after.")
+            return False
+    else:
+        answer = input(f"Is this the right channel for '{account}'? [Y/n] ").strip().lower()
+        if answer in ("n", "no"):
+            _logout(config, account)
+            print(f"Logged out. Run `{auth_hint('youtube', account, config)}` again and pick the other channel.")
+            return False
 
     for other in config.accounts:
-        if other != account and saved_channel(config, other).get("id") == channel["id"]:
+        if other != account and saved_channel(config, other).get("id") == got["id"]:
             print(f"Heads up: account '{other}' is logged in to this same channel.")
-
-    answer = input(f"Is this the right channel for '{account}'? [Y/n] ").strip().lower()
-    if answer in ("n", "no"):
-        config.path(config.settings(account, "youtube")["token_file"]).unlink(missing_ok=True)
-        channel_file(config, account).unlink(missing_ok=True)
-        print(f"Logged out. Run `{auth_hint('youtube', account, config)}` again and pick the other channel.")
-        return
-    channel_file(config, account).write_text(json.dumps(channel, indent=2))
-    print(f"YouTube logged in for '{account}' -> {channel['title']}.")
+    channel_file(config, account).write_text(json.dumps(got, indent=2))
+    print(f"\n✅ YouTube for '{account}' will post to: {got['title']}")
+    return True
 
 
 class YouTubePublisher(Publisher):

@@ -230,7 +230,8 @@ def cmd_auth(args) -> int:
                   "so nothing will post there until you add it.")
         if args.platform == "youtube":
             from .platforms.youtube import authorize
-            authorize(config, account)
+            if not authorize(config, account, want=args.channel):
+                return 1
         elif args.platform == "tiktok":
             from .platforms.tiktok import authorize
             authorize(config, account)
@@ -296,6 +297,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("auth", help="log in to a platform")
     p.add_argument("platform", choices=PLATFORMS)
     p.add_argument("-a", "--account", help="which account from config.yaml (needed if you have several)")
+    p.add_argument("--channel", help="youtube: the channel handle you expect, e.g. @brocmayo (checked after login)")
     p.add_argument("--token", help="instagram: short-lived token from Graph API Explorer")
     p.add_argument("--ig-username", help="instagram: which linked IG account, e.g. @myhandle")
     p.add_argument("--refresh", action="store_true", help="instagram: extend the saved token")
