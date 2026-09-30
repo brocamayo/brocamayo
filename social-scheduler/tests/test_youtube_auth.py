@@ -37,7 +37,7 @@ class FakeCreds:
 def login(monkeypatch, config, account, mine_id, answer="y", want=None, email="me@gmail.com"):
     token = config.path(config.settings(account, "youtube")["token_file"])
 
-    def fake_credentials(cfg, acct, interactive=False):
+    def fake_credentials(cfg, acct, interactive=False, login_hint=None):
         token.parent.mkdir(parents=True, exist_ok=True)
         token.write_text("{}")
         return FakeCreds(email)
@@ -70,7 +70,7 @@ def test_wanted_handle_mismatch_explains_which_row_to_pick(monkeypatch, config, 
     out = capsys.readouterr().out
     assert not ok and not token.exists()
     assert "@brocmayo is the channel named \"Broc Mayo\"" in out
-    assert "click the row named" in out
+    assert "--google-id" in out
 
 
 def test_same_channel_warning_and_saying_no_logs_out(monkeypatch, config, capsys):
@@ -90,3 +90,26 @@ def test_accounts_command_shows_channel(monkeypatch, config, project, capsys):
     main(["-c", str(project / "config.yaml"), "accounts"])
     out = capsys.readouterr().out
     assert "youtube    logged in to channel: Broc Mayo" in out
+
+
+def test_google_id_is_passed_as_login_hint(monkeypatch, config, project):
+    import google_auth_oauthlib.flow as gflow
+
+    (project / "credentials" / "youtube_client_secret.json").write_text("{}")
+    seen = {}
+
+    class FakeFlow:
+        @classmethod
+        def from_client_secrets_file(cls, path, scopes):
+            return cls()
+
+        def run_local_server(self, **kwargs):
+            seen.update(kwargs)
+            raise KeyboardInterrupt  # stop before any real network
+
+    monkeypatch.setattr(gflow, "InstalledAppFlow", FakeFlow)
+    try:
+        yt._credentials(config, "main", interactive=True, login_hint="110447739688482854681")
+    except KeyboardInterrupt:
+        pass
+    assert seen["login_hint"] == "110447739688482854681" and seen["prompt"] == "consent"

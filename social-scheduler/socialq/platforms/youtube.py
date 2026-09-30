@@ -23,7 +23,7 @@ os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 CHUNK_SIZE = 8 * 1024 * 1024
 
 
-def _credentials(config, account: str, interactive: bool = False):
+def _credentials(config, account: str, interactive: bool = False, login_hint: str | None = None):
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
 
@@ -44,8 +44,13 @@ def _credentials(config, account: str, interactive: bool = False):
         if not secrets.exists():
             raise PublishError(f"youtube: OAuth client file not found at {secrets} (see README)")
         flow = InstalledAppFlow.from_client_secrets_file(str(secrets), SCOPES)
-        # select_account makes Google ask which account/channel to use every time.
-        creds = flow.run_local_server(port=0, prompt="consent select_account", access_type="offline")
+        if login_hint:
+            # A Google account ID (e.g. a Brand Account's) or email: go straight to that account.
+            creds = flow.run_local_server(port=0, prompt="consent", access_type="offline",
+                                          login_hint=login_hint)
+        else:
+            # select_account makes Google ask which account/channel to use every time.
+            creds = flow.run_local_server(port=0, prompt="consent select_account", access_type="offline")
     token_file.parent.mkdir(parents=True, exist_ok=True)
     token_file.write_text(creds.to_json())
     return creds
@@ -80,12 +85,12 @@ def _logout(config, account: str) -> None:
     channel_file(config, account).unlink(missing_ok=True)
 
 
-def authorize(config, account: str, want: str | None = None) -> bool:
+def authorize(config, account: str, want: str | None = None, google_id: str | None = None) -> bool:
     """Log in; if `want` (e.g. "@brocmayo") is given, verify the login landed on that channel."""
     from googleapiclient.discovery import build
 
     print(f"Logging in YouTube for account '{account}'.")
-    creds = _credentials(config, account, interactive=True)
+    creds = _credentials(config, account, interactive=True, login_hint=google_id)
     youtube = build("youtube", "v3", credentials=creds, cache_discovery=False)
     email = _google_email(creds)
 
@@ -110,10 +115,10 @@ def authorize(config, account: str, want: str | None = None) -> bool:
         if target["id"] != got["id"]:
             _logout(config, account)
             print(f"\n❌ That's not {handle}. {handle} is the channel named \"{target['snippet']['title']}\".")
-            print("Run the same command again. On Google's \"Choose an account\" screen, click the row named")
-            print(f"\"{target['snippet']['title']}\" (it may have no email under it, or say \"Brand Account\"),")
-            print("instead of an email address. If there's no such row, click the email that manages")
-            print(f"{handle} and look for a \"Choose a channel\" screen right after.")
+            print("If it's a Brand Account channel, log in straight to it with its Google ID: open")
+            print("https://myaccount.google.com/brandaccounts, click it, copy the long number from the")
+            print("address bar, and run:")
+            print(f"    {auth_hint('youtube', account, config)} --channel {handle} --google-id <that number>")
             return False
     else:
         answer = input(f"Is this the right channel for '{account}'? [Y/n] ").strip().lower()
