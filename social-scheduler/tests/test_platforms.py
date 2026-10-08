@@ -314,3 +314,23 @@ def test_instagram_login_posts_via_instagram_host_and_renews_before_expiry(proje
     assert session.calls[0][2]["data"]["access_token"] == "IGnew"
     saved = json.loads(token_file.read_text())
     assert saved["access_token"] == "IGnew" and saved["expires_at"] > time.time() + 50 * 86400
+
+
+def test_tiktok_login_asks_only_for_scopes_the_mode_needs(project, config, monkeypatch):
+    from socialq.platforms import tiktok as tt
+
+    monkeypatch.setenv("TIKTOK_CLIENT_KEY", "k")
+    monkeypatch.setenv("TIKTOK_CLIENT_SECRET", "s")
+    (project / "config.yaml").write_text((project / "config.yaml").read_text().replace(
+        "tiktok: {mode: direct, chunk_size_mb: 5}", "tiktok: {mode: direct, chunk_size_mb: 5, redirect_uri: 'https://example.com/'}"))
+    from socialq.config import load_config
+    cfg = load_config(project / "config.yaml")
+    printed = []
+    monkeypatch.setattr("builtins.print", lambda *a, **k: printed.append(" ".join(map(str, a))))
+    monkeypatch.setattr("builtins.input", lambda prompt: (_ for _ in ()).throw(KeyboardInterrupt))
+    for account, expected in (("second", "user.info.basic%2Cvideo.upload&"), ("main", "video.publish")):
+        printed.clear()
+        with pytest.raises(KeyboardInterrupt):
+            tt.authorize(cfg, account)
+        url = next(line for line in printed if "tiktok.com/v2/auth/authorize" in line)
+        assert expected in url

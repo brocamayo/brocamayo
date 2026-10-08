@@ -23,7 +23,12 @@ from .base import NotLoggedIn, PublishError, PublishResult, Publisher, auth_hint
 
 API = "https://open.tiktokapis.com/v2"
 AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/"
-SCOPES = "user.info.basic,video.publish,video.upload"
+# inbox mode only needs video.upload; direct mode also needs video.publish (Direct Post product).
+SCOPES = {"inbox": "user.info.basic,video.upload", "direct": "user.info.basic,video.upload,video.publish"}
+
+
+def scopes_for(mode: str) -> str:
+    return SCOPES.get(mode, SCOPES["inbox"])
 
 MB = 1024 * 1024
 MIN_CHUNK = 5 * MB
@@ -116,7 +121,8 @@ def authorize(config, account: str) -> None:
         raise PublishError("tiktok: set tiktok.redirect_uri in config.yaml (must match your TikTok app)")
     state = secrets.token_urlsafe(16)
     url = AUTHORIZE_URL + "?" + urlencode({
-        "client_key": key, "scope": SCOPES, "response_type": "code",
+        "client_key": key, "scope": scopes_for(config.settings(account, "tiktok").get("mode", "inbox")),
+        "response_type": "code",
         "redirect_uri": redirect_uri, "state": state,
     })
     print(f"Logging in TikTok for account '{account}'.")
