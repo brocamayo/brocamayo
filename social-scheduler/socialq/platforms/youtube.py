@@ -5,10 +5,15 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
 from pathlib import Path
 
 from ..queue import Post
 from .base import NotLoggedIn, PublishError, PublishResult, Publisher, auth_hint, log
+
+UPLOAD_TIMEOUT_S = 120      # a connection that sends nothing for this long is treated as dropped
+NETWORK_RETRIES = 5
+NETWORK_ERRORS = (OSError, TimeoutError)  # BrokenPipe, ConnectionReset, socket timeouts, SSL errors
 
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
@@ -147,8 +152,12 @@ class YouTubePublisher(Publisher):
         channel = saved_channel(self.config, self.account).get("title")
         if channel:
             log.info("youtube (%s): uploading to channel %s", self.account, channel)
-        youtube = build("youtube", "v3", credentials=_credentials(self.config, self.account),
-                        cache_discovery=False)
+        import google_auth_httplib2
+        import httplib2
+
+        http = google_auth_httplib2.AuthorizedHttp(
+            _credentials(self.config, self.account), http=httplib2.Http(timeout=UPLOAD_TIMEOUT_S))
+        youtube = build("youtube", "v3", http=http, cache_discovery=False)
         body = {
             "snippet": {
                 "title": post.youtube_title(),
@@ -164,9 +173,22 @@ class YouTubePublisher(Publisher):
         media = MediaFileUpload(str(video), chunksize=CHUNK_SIZE, resumable=True, mimetype="video/*")
         try:
             request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
-            response = None
+            response, failures = None, 0
             while response is None:
-                status, response = request.next_chunk(num_retries=5)
+                try:
+                    status, response = request.next_chunk(num_retries=5)
+                except NETWORK_ERRORS as exc:
+                    # The upload session survives a dropped connection; the next call resumes it.
+                    failures += 1
+                    if failures > NETWORK_RETRIES:
+                        raise PublishError(f"youtube: upload kept losing its connection ({exc}); "
+                                           "it will be retried on a later run") from exc
+                    delay = min(5 * 2 ** (failures - 1), 60)
+                    log.warning("youtube: connection dropped (%s), resuming in %ss (%d/%d)",
+                                type(exc).__name__, delay, failures, NETWORK_RETRIES)
+                    time.sleep(delay)
+                    continue
+                failures = 0
                 if status:
                     log.info("youtube: uploaded %d%%", int(status.progress() * 100))
             video_id = response["id"]

@@ -1,3 +1,4 @@
+import pytest
 import base64
 import json
 
@@ -113,3 +114,50 @@ def test_google_id_is_passed_as_login_hint(monkeypatch, config, project):
     except KeyboardInterrupt:
         pass
     assert seen["login_hint"] == "110447739688482854681" and seen["prompt"] == "consent"
+
+
+def test_upload_resumes_after_dropped_connection(monkeypatch, config, project):
+    import googleapiclient.discovery
+    import googleapiclient.http
+    from socialq.platforms.base import PublishError
+    from socialq.queue import load_queue
+
+    (project / "videos" / "v.mp4").write_bytes(b"x" * 10)
+    (project / "queue.yaml").write_text("- {id: v, video: v.mp4, publish_at: '2026-10-01 09:00', title: T}\n")
+    [post] = load_queue(config)
+    monkeypatch.setattr(yt, "_credentials", lambda cfg, acct, **k: object())
+    monkeypatch.setattr("google_auth_httplib2.AuthorizedHttp", lambda creds, http: http)
+    monkeypatch.setattr(googleapiclient.http, "MediaFileUpload", lambda *a, **k: object())
+    monkeypatch.setattr(yt.time, "sleep", lambda s: None)
+
+    class Request:
+        def __init__(self, outcomes):
+            self.outcomes = outcomes
+
+        def next_chunk(self, num_retries):
+            item = self.outcomes.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+    class Service:
+        def __init__(self, outcomes):
+            self.req = Request(outcomes)
+
+        def videos(self):
+            return self
+
+        def insert(self, **kwargs):
+            return self.req
+
+    # Two drops, then success: the upload is resumed, not failed.
+    outcomes = [BrokenPipeError(32, "Broken pipe"), TimeoutError("timed out"), (None, {"id": "vid1"})]
+    monkeypatch.setattr(googleapiclient.discovery, "build", lambda *a, **k: Service(outcomes))
+    result = yt.YouTubePublisher(config, "main").publish(post, post.video_path(config))
+    assert result.remote_id == "vid1"
+
+    # A connection that never recovers becomes a clean PublishError (retried on a later run).
+    outcomes = [BrokenPipeError(32, "Broken pipe")] * 10
+    monkeypatch.setattr(googleapiclient.discovery, "build", lambda *a, **k: Service(list(outcomes)))
+    with pytest.raises(PublishError, match="kept losing its connection"):
+        yt.YouTubePublisher(config, "main").publish(post, post.video_path(config))
