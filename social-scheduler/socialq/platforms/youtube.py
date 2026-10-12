@@ -140,6 +140,20 @@ def authorize(config, account: str, want: str | None = None, google_id: str | No
     return True
 
 
+def _upload_http(creds):
+    """Authorized HTTP client with a socket timeout.
+
+    Built from googleapiclient's build_http(), which stops httplib2 from treating the
+    resumable upload's "308 Resume Incomplete" replies as redirects.
+    """
+    import google_auth_httplib2
+    from googleapiclient.http import build_http
+
+    http = build_http()
+    http.timeout = UPLOAD_TIMEOUT_S
+    return google_auth_httplib2.AuthorizedHttp(creds, http=http)
+
+
 class YouTubePublisher(Publisher):
     name = "youtube"
 
@@ -152,12 +166,8 @@ class YouTubePublisher(Publisher):
         channel = saved_channel(self.config, self.account).get("title")
         if channel:
             log.info("youtube (%s): uploading to channel %s", self.account, channel)
-        import google_auth_httplib2
-        import httplib2
-
-        http = google_auth_httplib2.AuthorizedHttp(
-            _credentials(self.config, self.account), http=httplib2.Http(timeout=UPLOAD_TIMEOUT_S))
-        youtube = build("youtube", "v3", http=http, cache_discovery=False)
+        youtube = build("youtube", "v3", http=_upload_http(_credentials(self.config, self.account)),
+                        cache_discovery=False)
         body = {
             "snippet": {
                 "title": post.youtube_title(),

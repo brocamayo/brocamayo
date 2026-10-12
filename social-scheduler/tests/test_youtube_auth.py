@@ -126,7 +126,7 @@ def test_upload_resumes_after_dropped_connection(monkeypatch, config, project):
     (project / "queue.yaml").write_text("- {id: v, video: v.mp4, publish_at: '2026-10-01 09:00', title: T}\n")
     [post] = load_queue(config)
     monkeypatch.setattr(yt, "_credentials", lambda cfg, acct, **k: object())
-    monkeypatch.setattr("google_auth_httplib2.AuthorizedHttp", lambda creds, http: http)
+    monkeypatch.setattr(yt, "_upload_http", lambda creds: None)
     monkeypatch.setattr(googleapiclient.http, "MediaFileUpload", lambda *a, **k: object())
     monkeypatch.setattr(yt.time, "sleep", lambda s: None)
 
@@ -161,3 +161,12 @@ def test_upload_resumes_after_dropped_connection(monkeypatch, config, project):
     monkeypatch.setattr(googleapiclient.discovery, "build", lambda *a, **k: Service(list(outcomes)))
     with pytest.raises(PublishError, match="kept losing its connection"):
         yt.YouTubePublisher(config, "main").publish(post, post.video_path(config))
+
+
+def test_upload_http_keeps_308_as_resume_and_has_a_timeout():
+    """YouTube answers each uploaded chunk with 308; it must not be followed as a redirect."""
+    from google.oauth2.credentials import Credentials
+
+    http = yt._upload_http(Credentials(token="t"))
+    assert 308 not in http.http.redirect_codes
+    assert http.http.timeout == yt.UPLOAD_TIMEOUT_S
