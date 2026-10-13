@@ -90,6 +90,8 @@ def cmd_add(args) -> int:
     entry["caption"] = args.caption or ""
     if args.tags:
         entry["tags"] = [t.strip().lstrip("#") for t in args.tags.split(",") if t.strip()]
+    if args.playlist:
+        entry["youtube"] = {"playlist": args.playlist}
     if any(p.id == entry["id"] for p in posts):
         print(f"A post with id {entry['id']!r} already exists; pass --id", file=sys.stderr)
         return 1
@@ -263,6 +265,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-t", "--title")
     p.add_argument("--caption", help="caption / description (tags are appended as #hashtags)")
     p.add_argument("--tags", help="comma separated, e.g. investing,stocks")
+    p.add_argument("--playlist", help="youtube: add the upload to this playlist (its name or ID)")
     p.add_argument("--at", help="'YYYY-MM-DD HH:MM' in your timezone; default = next free slot")
     p.add_argument("-a", "--accounts", nargs="+", help="which accounts (default: all)")
     p.add_argument("-p", "--platforms", nargs="+", choices=PLATFORMS, help="default: all the account has")

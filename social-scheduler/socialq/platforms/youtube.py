@@ -19,6 +19,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     # Read-only, used to show which channel an account is logged in to.
     "https://www.googleapis.com/auth/youtube.readonly",
+    # Manage the channel's playlists (adding uploads to a playlist).
+    "https://www.googleapis.com/auth/youtube",
     # Which Google login was used, so a wrong pick can be explained.
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
@@ -140,6 +142,21 @@ def authorize(config, account: str, want: str | None = None, google_id: str | No
     return True
 
 
+PLAYLIST_SCOPES = {"https://www.googleapis.com/auth/youtube", "https://www.googleapis.com/auth/youtube.force-ssl"}
+
+
+def find_playlist(youtube, wanted: str) -> str | None:
+    """Playlist ID by exact ID or by title (case-insensitive) on the logged-in channel."""
+    request = youtube.playlists().list(part="snippet", mine=True, maxResults=50)
+    while request is not None:
+        resp = request.execute()
+        for item in resp.get("items", []):
+            if wanted in (item["id"],) or item["snippet"]["title"].strip().lower() == wanted.strip().lower():
+                return item["id"]
+        request = youtube.playlists().list_next(request, resp)
+    return None
+
+
 def _upload_http(creds):
     """Authorized HTTP client with a socket timeout.
 
@@ -157,6 +174,29 @@ def _upload_http(creds):
 class YouTubePublisher(Publisher):
     name = "youtube"
 
+    def _add_to_playlist(self, youtube, video_id: str, playlist: str) -> None:
+        """Best effort: the video is already up, so problems here are warnings, not failures."""
+        from googleapiclient.errors import HttpError
+
+        hint = f"{auth_hint('youtube', self.account, self.config)}"
+        granted = set(getattr(self._creds, "scopes", None) or [])
+        if granted and not granted & PLAYLIST_SCOPES:
+            log.warning("youtube (%s): video posted, but NOT added to playlist '%s': this login predates "
+                        "playlist support. Run `%s` once to fix.", self.account, playlist, hint)
+            return
+        try:
+            playlist_id = find_playlist(youtube, playlist)
+            if not playlist_id:
+                log.warning("youtube (%s): video posted, but no playlist named '%s' was found on the channel",
+                            self.account, playlist)
+                return
+            youtube.playlistItems().insert(part="snippet", body={"snippet": {
+                "playlistId": playlist_id, "resourceId": {"kind": "youtube#video", "videoId": video_id}}}).execute()
+            log.info("youtube (%s): added to playlist '%s'", self.account, playlist)
+        except HttpError as exc:
+            log.warning("youtube (%s): video posted, but adding it to playlist '%s' failed: %s",
+                        self.account, playlist, exc)
+
     def publish(self, post: Post, video: Path) -> PublishResult:
         from googleapiclient.discovery import build
         from googleapiclient.errors import HttpError
@@ -166,8 +206,8 @@ class YouTubePublisher(Publisher):
         channel = saved_channel(self.config, self.account).get("title")
         if channel:
             log.info("youtube (%s): uploading to channel %s", self.account, channel)
-        youtube = build("youtube", "v3", http=_upload_http(_credentials(self.config, self.account)),
-                        cache_discovery=False)
+        self._creds = _credentials(self.config, self.account)
+        youtube = build("youtube", "v3", http=_upload_http(self._creds), cache_discovery=False)
         body = {
             "snippet": {
                 "title": post.youtube_title(),
@@ -202,6 +242,10 @@ class YouTubePublisher(Publisher):
                 if status:
                     log.info("youtube: uploaded %d%%", int(status.progress() * 100))
             video_id = response["id"]
+
+            playlist = post.option("youtube", "playlist")
+            if playlist:
+                self._add_to_playlist(youtube, video_id, str(playlist))
 
             thumb = post.thumbnail_path(self.config)
             if thumb:

@@ -170,3 +170,69 @@ def test_upload_http_keeps_308_as_resume_and_has_a_timeout():
     http = yt._upload_http(Credentials(token="t"))
     assert 308 not in http.http.redirect_codes
     assert http.http.timeout == yt.UPLOAD_TIMEOUT_S
+
+
+class _Exec:
+    def __init__(self, value):
+        self.value = value
+
+    def execute(self):
+        return self.value
+
+
+class PlaylistYouTube:
+    def __init__(self, playlists):
+        self.playlists_data, self.inserted = playlists, []
+
+    def playlists(self):
+        return self
+
+    def list(self, **kwargs):
+        return _Exec({"items": self.playlists_data})
+
+    def list_next(self, request, resp):
+        return None
+
+    def playlistItems(self):
+        return self
+
+    def insert(self, part, body):
+        self.inserted.append(body["snippet"])
+        return _Exec({})
+
+
+def make_publisher(config, scopes):
+    pub = yt.YouTubePublisher(config, "main")
+    pub._creds = type("C", (), {"scopes": scopes})()
+    return pub
+
+
+def test_playlist_added_by_name(config):
+    service = PlaylistYouTube([{"id": "PL1", "snippet": {"title": "Shorts"}},
+                               {"id": "PL2", "snippet": {"title": "AI + Stocks"}}])
+    make_publisher(config, yt.SCOPES)._add_to_playlist(service, "vid1", "ai + stocks")
+    assert service.inserted == [{"playlistId": "PL2", "resourceId": {"kind": "youtube#video", "videoId": "vid1"}}]
+
+
+def test_playlist_skipped_with_hint_when_login_lacks_scope(config, caplog):
+    service = PlaylistYouTube([{"id": "PL2", "snippet": {"title": "AI + Stocks"}}])
+    make_publisher(config, ["https://www.googleapis.com/auth/youtube.upload"])._add_to_playlist(
+        service, "vid1", "AI + Stocks")
+    assert service.inserted == [] and "predates playlist support" in caplog.text
+
+
+def test_missing_playlist_is_a_warning_not_a_failure(config, caplog):
+    make_publisher(config, yt.SCOPES)._add_to_playlist(PlaylistYouTube([]), "vid1", "Nope")
+    assert "no playlist named 'Nope'" in caplog.text
+
+
+def test_add_command_stores_playlist(project):
+    from socialq.cli import main
+    from socialq.config import load_config
+    from socialq.queue import load_queue
+
+    (project / "videos" / "v.mp4").write_bytes(b"x")
+    main(["-c", str(project / "config.yaml"), "add", str(project / "videos" / "v.mp4"),
+          "--title", "T", "--playlist", "AI + Stocks", "--at", "2026-10-01 09:00", "--accounts", "main"])
+    [post] = load_queue(load_config(project / "config.yaml"))
+    assert post.option("youtube", "playlist") == "AI + Stocks"
