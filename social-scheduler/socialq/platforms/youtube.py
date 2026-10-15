@@ -237,6 +237,10 @@ class YouTubePublisher(Publisher):
                     log.warning("youtube: connection dropped (%s), resuming in %ss (%d/%d)",
                                 type(exc).__name__, delay, failures, NETWORK_RETRIES)
                     time.sleep(delay)
+                    # Part of the chunk may have arrived. This makes the next call ask YouTube
+                    # how many bytes it has (Content-Range: bytes */size) and continue from there,
+                    # instead of re-sending from a stale offset.
+                    request._in_error_state = True
                     continue
                 failures = 0
                 if status:

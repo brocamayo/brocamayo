@@ -150,11 +150,22 @@ def test_upload_resumes_after_dropped_connection(monkeypatch, config, project):
         def insert(self, **kwargs):
             return self.req
 
-    # Two drops, then success: the upload is resumed, not failed.
+    # Two drops, then success: the upload is resumed, not failed, and each resume first asks
+    # YouTube how much it received (googleapiclient's error-state status query).
     outcomes = [BrokenPipeError(32, "Broken pipe"), TimeoutError("timed out"), (None, {"id": "vid1"})]
-    monkeypatch.setattr(googleapiclient.discovery, "build", lambda *a, **k: Service(outcomes))
+    service = Service(outcomes)
+    error_state_on_call = []
+    original = Request.next_chunk
+
+    def tracking_next_chunk(self, num_retries):
+        error_state_on_call.append(getattr(self, "_in_error_state", False))
+        return original(self, num_retries)
+
+    monkeypatch.setattr(Request, "next_chunk", tracking_next_chunk)
+    monkeypatch.setattr(googleapiclient.discovery, "build", lambda *a, **k: service)
     result = yt.YouTubePublisher(config, "main").publish(post, post.video_path(config))
     assert result.remote_id == "vid1"
+    assert error_state_on_call == [False, True, True]
 
     # A connection that never recovers becomes a clean PublishError (retried on a later run).
     outcomes = [BrokenPipeError(32, "Broken pipe")] * 10
