@@ -58,7 +58,8 @@ cd "$ROOT" && SOCIALQ_CMD=./sq exec .venv/bin/python -m socialq "\$@"
 EOF
 chmod +x sq
 
-# Background job: every 10 minutes, and once at login.
+# Background job: every 10 minutes, and once at login. caffeinate keeps the Mac from
+# idle-sleeping (and, on power, system-sleeping) while an upload is running.
 mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -68,6 +69,8 @@ cat > "$PLIST" <<EOF
   <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key>
   <array>
+    <string>/usr/bin/caffeinate</string>
+    <string>-is</string>
     <string>$ROOT/.venv/bin/python</string>
     <string>-m</string>
     <string>socialq</string>
