@@ -247,3 +247,16 @@ def test_add_command_stores_playlist(project):
           "--title", "T", "--playlist", "AI + Stocks", "--at", "2026-10-01 09:00", "--accounts", "main"])
     [post] = load_queue(load_config(project / "config.yaml"))
     assert post.option("youtube", "playlist") == "AI + Stocks"
+
+
+def test_add_command_accepts_comma_separated_accounts(project):
+    from socialq.cli import main
+    from socialq.config import load_config
+    from socialq.queue import load_queue
+
+    (project / "videos" / "v.mp4").write_bytes(b"x")
+    main(["-c", str(project / "config.yaml"), "add", str(project / "videos" / "v.mp4"),
+          "--title", "T", "--at", "2026-10-01 09:00", "--accounts", "main,second", "--platforms", "youtube"])
+    config = load_config(project / "config.yaml")
+    [post] = load_queue(config)
+    assert sorted(t.account for t in post.targets(config)) == ["main", "second"]

@@ -81,6 +81,8 @@ def cmd_add(args) -> int:
         "publish_at": when.strftime(DATETIME_FORMAT),
     }
     if args.accounts:
+        # Accept "a b", "a,b" and "a, b".
+        args.accounts = [n.strip() for part in args.accounts for n in part.split(",") if n.strip()]
         for name in args.accounts:
             config.account(name)  # fail early on a typo
         entry["accounts"] = args.accounts
