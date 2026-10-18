@@ -94,7 +94,7 @@ def test_tiktok_rejects_privacy_the_app_is_not_allowed(project, config):
         TikTokPublisher(config, "main", session=session).publish(post, video)
 
 
-def test_tiktok_inbox_mode(project, config):
+def test_tiktok_inbox_mode(project, config, caplog):
     save_tiktok_token(project)
     post, video = one_post(project, config, "[tiktok]", "  tiktok: {mode: inbox}\n")
     ok = {"error": {"code": "ok"}}
@@ -104,8 +104,10 @@ def test_tiktok_inbox_mode(project, config):
         ("PUT", "upload.tiktok", FakeResponse(201)),
         ("POST", "status/fetch", FakeResponse(200, {**ok, "data": {"status": "SEND_TO_USER_INBOX"}})),
     ])
+    caplog.set_level("INFO", logger="socialq")
     assert TikTokPublisher(config, "main", session=session).publish(post, video).remote_id == "p2"
     assert not any("creator_info" in c[1] for c in session.calls)
+    assert "caption to paste" in caplog.text and "Hello\n\n#money" in caplog.text
 
 
 def test_tiktok_api_error_is_surfaced(project, config):

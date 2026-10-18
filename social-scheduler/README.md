@@ -78,7 +78,7 @@ The **developer app** for each platform (the keys in `.env` and the YouTube clie
 | `init [dir]` | Create starter `config.yaml`, `queue.yaml`, `.env` |
 | `accounts` | Show each account and which platforms are logged in |
 | `auth PLATFORM --account NAME` | Log in one account to `youtube`, `instagram`, `tiktok` or `x` |
-| `add VIDEO [--title --caption --tags --at --accounts --platforms --id]` | Queue a video. Without `--at` it takes the next free slot; without `--accounts` it goes to every account |
+| `add VIDEO [--title --caption --tags --at --accounts --platforms --id --playlist --ig-caption --tiktok-caption]` | Queue a video. Without `--at` it takes the next free slot; without `--accounts` it goes to every account |
 | `list [-a]` | Show upcoming posts and their status on each account/platform |
 | `check` | Validate the queue: files exist, caption and title limits |
 | `run [--dry-run]` | Publish everything that's due, then exit. This is what the scheduled job runs |
@@ -114,6 +114,8 @@ Pass `-c path/to/config.yaml` before the command if you're not running from the 
 ```
 
 See `queue.example.yaml` for a full example. For vertical Shorts, put `#Shorts` in the title or description.
+
+On Instagram, TikTok and X the caption is used without `#Shorts` (it means nothing there). If the caption has no hashtags of its own, the tags are added as hashtags (`debt-free` becomes `#debtfree`). To write a different caption for one platform, use `--ig-caption` / `--tiktok-caption` with `add`, or a `caption:` override in the queue.
 
 > ⚠️ Posting the exact same video and caption to two accounts on the same platform can be treated as duplicate or spam content, which limits reach. Use `per_account` text and `delay_minutes` to keep the accounts distinct.
 
@@ -167,7 +169,7 @@ Videos upload directly from your computer, so they don't need to be hosted anywh
 4. Run `python -m socialq auth tiktok --account main`, open the link, approve access, and paste back the address you land on. Do the same for `--account second` in a private/incognito window. After that, the tool refreshes each login automatically for up to a year.
 
 > ⚠️ **TikTok has two modes** (`tiktok.mode` in config.yaml, can differ per account):
-> - **`inbox` (default).** The video arrives in your TikTok app as a draft notification, and you tap **Post**, which takes about 10 seconds on your phone. This works right away.
+> - **`inbox` (default).** The video arrives in your TikTok app as a draft notification, and you tap **Post**, which takes about 10 seconds on your phone. This works right away. TikTok doesn't let inbox uploads carry a caption, so the run prints it and, on a Mac, copies it to the clipboard (with Universal Clipboard you can paste it straight into TikTok on your iPhone).
 > - **`direct`.** Posts go out fully automatically, but TikTok must [audit your app](https://developers.tiktok.com/doc/content-sharing-guidelines) first. Until the audit passes, direct posts can only be private (`SELF_ONLY`). Switch to `direct` once you're approved.
 
 ### X

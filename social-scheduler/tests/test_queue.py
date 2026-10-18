@@ -96,3 +96,38 @@ def test_account_settings_override_shared_ones(config):
     assert config.settings("second", "tiktok")["mode"] == "inbox"
     assert config.settings("second", "tiktok")["chunk_size_mb"] == 5
     assert config.settings("second", "tiktok")["token_file"] == "credentials/second/tiktok_token.json"
+
+
+def test_social_caption_drops_shorts_and_keeps_own_hashtags():
+    from socialq.queue import Post
+
+    post = Post(id="p", video="v.mp4", publish_at=datetime(2026, 10, 5, tzinfo=LA),
+                caption="I Built an App #Shorts. Type what you owe.\n\nNot advice.\n\n#Shorts #debtfree #budgeting",
+                tags=["debt-snowball", "shorts"])
+    expected = "I Built an App. Type what you owe.\n\nNot advice.\n\n#debtfree #budgeting"
+    assert post.social_caption("instagram") == expected
+    assert post.social_caption("tiktok") == expected
+    assert post.youtube_description().endswith("#Shorts #debtfree #budgeting")
+
+
+def test_tag_hashtags_drop_dashes_and_youtube_only_tags():
+    from socialq.queue import Post
+
+    post = Post(id="p", video="v.mp4", publish_at=datetime(2026, 10, 5, tzinfo=LA),
+                caption="Plain caption", tags=["debt-snowball", "credit card debt", "Shorts"])
+    assert post.social_caption("instagram") == "Plain caption\n\n#debtsnowball #creditcarddebt"
+
+
+def test_add_command_per_platform_captions(project):
+    from socialq.cli import main
+    from socialq.config import load_config
+
+    (project / "videos" / "v.mp4").write_bytes(b"x")
+    main(["-c", str(project / "config.yaml"), "add", str(project / "videos" / "v.mp4"), "--title", "T",
+          "--caption", "Everywhere", "--ig-caption", "Link in bio", "--tiktok-caption", "For TikTok",
+          "--at", "2026-10-01 09:00"])
+    [post] = load_queue(load_config(project / "config.yaml"))
+    assert post.youtube_description() == "Everywhere"
+    assert post.social_caption("instagram") == "Link in bio"
+    assert post.social_caption("tiktok") == "For TikTok"
+    assert post.social_caption("x") == "Everywhere"

@@ -25,6 +25,17 @@ X_URL_LENGTH = 23           # X counts every link as 23 characters
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M"
 
+HASHTAG = re.compile(r"#\w")
+YOUTUBE_ONLY_TAGS = {"shorts", "short", "ytshorts", "youtubeshorts"}
+
+
+def drop_youtube_only_hashtags(text: str) -> str:
+    """Remove #Shorts and friends, which mean nothing on Instagram, TikTok or X."""
+    names = "|".join(sorted(YOUTUBE_ONLY_TAGS, key=len, reverse=True))
+    text = re.sub(rf"(?i)[ \t]*#(?:{names})\b", "", text)
+    lines = [line.strip() for line in text.strip().splitlines()]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
 
 @dataclass(frozen=True)
 class Target:
@@ -108,16 +119,20 @@ class Post:
     # --- per-platform text ---------------------------------------------------
 
     def hashtags(self) -> str:
-        return " ".join(f"#{t.lstrip('#').replace(' ', '')}" for t in self.tags)
+        """Tags as hashtags. Spaces and dashes are dropped: "debt-free" would end the tag at the dash."""
+        tags = (re.sub(r"[\s-]", "", t.lstrip("#")) for t in self.tags)
+        return " ".join(f"#{t}" for t in tags if t and t.lower() not in YOUTUBE_ONLY_TAGS)
 
     def social_caption(self, platform: str) -> str:
-        """Caption for Instagram/TikTok/X: an override wins, else caption + #tags."""
+        """Caption for Instagram/TikTok/X: an override wins, else the caption without
+        YouTube-only hashtags (#Shorts), plus the tags as hashtags if it has none of its own."""
         override = self.option(platform, "caption")
         if override is not None:
             return str(override).strip()
-        parts = [self.caption.strip()]
+        caption = drop_youtube_only_hashtags(self.caption)
+        parts = [caption]
         tags = self.hashtags()
-        if tags and tags not in self.caption:
+        if tags and not HASHTAG.search(caption):
             parts.append(tags)
         return "\n\n".join(p for p in parts if p)
 

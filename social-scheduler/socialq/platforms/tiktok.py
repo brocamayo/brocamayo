@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import subprocess
+import sys
 import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -144,6 +146,17 @@ def authorize(config, account: str) -> None:
 
 # --- publishing ---------------------------------------------------------------
 
+def _copy_to_clipboard(text: str) -> bool:
+    """Best effort, macOS only. With Universal Clipboard it can be pasted straight into TikTok on an iPhone."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        subprocess.run(["pbcopy"], input=text.encode(), check=True, timeout=5)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 class TikTokPublisher(Publisher):
     name = "tiktok"
 
@@ -226,5 +239,10 @@ class TikTokPublisher(Publisher):
         if post_ids:
             return PublishResult(remote_id=str(post_ids[0]))
         if mode == "inbox":
+            # Inbox uploads can't carry a caption; TikTok has you type it when you tap Post.
+            caption = post.social_caption("tiktok")
             log.info("tiktok: sent to your TikTok inbox - open the app to finish posting")
+            if caption:
+                copied = _copy_to_clipboard(caption)
+                log.info("tiktok: caption to paste%s:\n%s", " (copied to your clipboard)" if copied else "", caption)
         return PublishResult(remote_id=publish_id)
