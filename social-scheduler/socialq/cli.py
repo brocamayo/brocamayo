@@ -199,6 +199,16 @@ def cmd_retry(args) -> int:
     return 0
 
 
+def _tiktok_open_id(config, account: str) -> str | None:
+    import json
+
+    path = config.path(config.settings(account, "tiktok")["token_file"])
+    try:
+        return json.loads(path.read_text()).get("open_id") if path.exists() else None
+    except (ValueError, OSError):
+        return None
+
+
 def cmd_accounts(args) -> int:
     import json
 
@@ -220,6 +230,12 @@ def cmd_accounts(args) -> int:
                     from .platforms.youtube import saved_channel
                     title = saved_channel(config, account.name).get("title")
                     info = f" to channel: {title}" if title else " (channel unknown - log in again to see it)"
+                if platform == "tiktok":
+                    info = f" as {saved['display_name']}" if saved.get("display_name") else ""
+                    same = [a for a in config.accounts if a != account.name and _tiktok_open_id(config, a)
+                            == saved.get("open_id")]
+                    if same:
+                        info += f"  ⚠️ same TikTok account as '{same[0]}'"
                 if platform == "instagram" and saved.get("expires_at"):
                     info += f", expires {datetime.fromtimestamp(saved['expires_at']):%Y-%m-%d}"
             except (ValueError, OSError):

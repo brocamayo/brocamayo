@@ -360,3 +360,17 @@ def test_tiktok_retries_a_failed_chunk(project, config):
     ])
     assert TikTokPublisher(config, "main", session=session).publish(post, video).remote_id == "p3"
     assert sum(c[0] == "PUT" for c in session.calls) == 2
+
+
+def test_accounts_flags_two_accounts_on_the_same_tiktok(project, config, capsys):
+    import json as _json
+    from socialq.cli import main
+
+    for account in ("main", "second"):
+        path = project / "credentials" / account / "tiktok_token.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps({"access_token": "a", "refresh_token": "r", "open_id": "same",
+                                     "display_name": "Snowballer", "expires_at": 0, "refresh_expires_at": 0}))
+    main(["-c", str(project / "config.yaml"), "accounts"])
+    out = capsys.readouterr().out
+    assert "tiktok     logged in as Snowballer  ⚠️ same TikTok account as 'second'" in out

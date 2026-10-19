@@ -142,8 +142,28 @@ def authorize(config, account: str) -> None:
         raise PublishError(f"tiktok: no code in that URL ({query.get('error_description', query)})")
     data = _token_request({"client_key": key, "client_secret": secret, "code": query["code"][0],
                            "grant_type": "authorization_code", "redirect_uri": redirect_uri})
-    _save_token(config, account, data)
-    print(f"TikTok logged in for '{account}'.")
+    token = _save_token(config, account, data)
+    name = _display_name(token["access_token"])
+    if name:
+        token["display_name"] = name
+        _token_file(config, account).write_text(json.dumps(token, indent=2))
+    print(f"TikTok logged in for '{account}'" + (f" as {name}." if name else "."))
+    for other in config.accounts:
+        if other == account or not _token_file(config, other).exists():
+            continue
+        if json.loads(_token_file(config, other).read_text()).get("open_id") == token["open_id"]:
+            print(f"\n⚠️  That's the same TikTok account '{other}' is logged in to. Run this again in a")
+            print("   private window and log in to the other TikTok account.")
+
+
+def _display_name(access_token: str) -> str | None:
+    """The TikTok display name for a login (best effort; only shown to the user)."""
+    try:
+        resp = requests.get(f"{API}/user/info/", params={"fields": "open_id,display_name"}, timeout=30,
+                            headers={"Authorization": f"Bearer {access_token}"})
+        return resp.json().get("data", {}).get("user", {}).get("display_name") or None
+    except (requests.RequestException, ValueError):
+        return None
 
 
 # --- publishing ---------------------------------------------------------------
