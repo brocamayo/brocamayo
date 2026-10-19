@@ -47,6 +47,7 @@ class FakeResponse:
         self._body = body if body is not None else {}
         self.content = b"x"
         self.text = str(self._body)
+        self.headers = {}
 
     @property
     def ok(self):

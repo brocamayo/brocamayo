@@ -23,9 +23,18 @@ def one_post(project, config, platforms, extra=""):
 
 # --- TikTok chunking -----------------------------------------------------------
 
-@pytest.mark.parametrize("size", [1, 5 * MB - 1, 64 * MB])
+@pytest.mark.parametrize("size", [1, 5 * MB - 1, 5 * MB])
 def test_small_files_upload_in_one_chunk(size):
     assert plan_chunks(size) == (size, 1)
+
+
+def test_medium_files_are_split_into_small_chunks():
+    size = 30 * MB + 7
+    chunk, count = plan_chunks(size)
+    assert (chunk, count) == (5 * MB, 6)
+    ranges = chunk_ranges(size, chunk, count)
+    assert ranges[-1] == (25 * MB, size - 1)
+    assert sum(e - s + 1 for s, e in ranges) == size
 
 
 def test_large_file_leftover_goes_in_last_chunk():
@@ -336,3 +345,18 @@ def test_tiktok_login_asks_only_for_scopes_the_mode_needs(project, config, monke
             tt.authorize(cfg, account)
         url = next(line for line in printed if "tiktok.com/v2/auth/authorize" in line)
         assert expected in url
+
+
+def test_tiktok_retries_a_failed_chunk(project, config):
+    save_tiktok_token(project)
+    post, video = one_post(project, config, "[tiktok]", "  tiktok: {mode: inbox}\n")
+    ok = {"error": {"code": "ok"}}
+    session = FakeSession([
+        ("POST", "/inbox/video/init/", FakeResponse(200, {**ok, "data": {
+            "publish_id": "p3", "upload_url": "https://upload.tiktok/x"}})),
+        ("PUT", "upload.tiktok", [FakeResponse(403, {"code": 50001, "message": "missing or invalid request id"}),
+                                  FakeResponse(201)]),
+        ("POST", "status/fetch", FakeResponse(200, {**ok, "data": {"status": "SEND_TO_USER_INBOX"}})),
+    ])
+    assert TikTokPublisher(config, "main", session=session).publish(post, video).remote_id == "p3"
+    assert sum(c[0] == "PUT" for c in session.calls) == 2

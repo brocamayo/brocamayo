@@ -35,20 +35,22 @@ def scopes_for(mode: str) -> str:
 MB = 1024 * 1024
 MIN_CHUNK = 5 * MB
 MAX_CHUNK = 64 * MB
-DEFAULT_CHUNK = 10 * MB
+DEFAULT_CHUNK = 5 * MB
+CHUNK_ATTEMPTS = 3
 
 
 def plan_chunks(video_size: int, preferred: int = DEFAULT_CHUNK) -> tuple[int, int]:
     """Return (chunk_size, total_chunk_count) following TikTok's rules.
 
-    Files up to 64 MB go in one chunk. Larger files use `preferred`-sized chunks;
-    the remainder is folded into the last chunk (allowed up to 128 MB).
+    Files under 5 MB (or no bigger than one chunk) go up whole. Otherwise they're
+    split into `preferred`-sized chunks, kept small so each request finishes quickly
+    on a slow connection; the remainder is folded into the last chunk.
     """
     if video_size <= 0:
         raise PublishError("tiktok: video file is empty")
-    if video_size <= MAX_CHUNK:
-        return video_size, 1
     chunk = min(max(preferred, MIN_CHUNK), MAX_CHUNK)
+    if video_size <= chunk:
+        return video_size, 1
     return chunk, video_size // chunk
 
 
@@ -171,12 +173,37 @@ class TikTokPublisher(Publisher):
             raise PublishError(f"tiktok: {path} failed: {err.get('code')} {err.get('message') or error_text(resp)}")
         return payload.get("data", {})
 
+    def _put_chunk(self, url: str, data: bytes, start: int, end: int, size: int, i: int, count: int) -> None:
+        """Upload one chunk, retrying it a couple of times (TikTok accepts a re-sent chunk)."""
+        for attempt in range(1, CHUNK_ATTEMPTS + 1):
+            log.info("tiktok: uploading chunk %d/%d (%.1f MB)", i, count, len(data) / MB)
+            began = time.monotonic()
+            try:
+                resp = self.request("PUT", url, data=data, timeout=300, headers={
+                    "Content-Type": "video/mp4",
+                    "Content-Length": str(len(data)),
+                    "Content-Range": f"bytes {start}-{end}/{size}",
+                })
+            except PublishError as exc:  # network error after request()'s own retries
+                problem = str(exc)
+            else:
+                if resp.status_code in (200, 201, 206):
+                    log.info("tiktok: chunk %d/%d done in %ds", i, count, time.monotonic() - began)
+                    return
+                logid = resp.headers.get("x-tt-logid")
+                problem = (f"HTTP {resp.status_code} {error_text(resp)} after {int(time.monotonic() - began)}s"
+                           + (f" (logid {logid})" if logid else ""))
+            if attempt == CHUNK_ATTEMPTS:
+                raise PublishError(f"tiktok: chunk {i}/{count} upload failed: {problem}")
+            log.warning("tiktok: chunk %d/%d failed (%s), retrying", i, count, problem)
+            time.sleep(5 * attempt)
+
     def publish(self, post: Post, video: Path) -> PublishResult:
         s = self.settings
         mode = post.option("tiktok", "mode", s.get("mode", "inbox"))
         token = access_token(self.config, self.account)
         size = video.stat().st_size
-        chunk_size, count = plan_chunks(size, int(s.get("chunk_size_mb", 10)) * MB)
+        chunk_size, count = plan_chunks(size, int(s.get("chunk_size_mb", DEFAULT_CHUNK // MB)) * MB)
         source_info = {"source": "FILE_UPLOAD", "video_size": size,
                        "chunk_size": chunk_size, "total_chunk_count": count}
 
@@ -213,15 +240,7 @@ class TikTokPublisher(Publisher):
         with video.open("rb") as fh:
             for i, (start, end) in enumerate(chunk_ranges(size, chunk_size, count), 1):
                 fh.seek(start)
-                data = fh.read(end - start + 1)
-                log.info("tiktok: uploading chunk %d/%d", i, count)
-                resp = self.request("PUT", upload_url, data=data, timeout=600, headers={
-                    "Content-Type": "video/mp4",
-                    "Content-Length": str(len(data)),
-                    "Content-Range": f"bytes {start}-{end}/{size}",
-                })
-                if resp.status_code not in (200, 201, 206):
-                    raise PublishError(f"tiktok: chunk {i} upload failed: HTTP {resp.status_code} {error_text(resp)}")
+                self._put_chunk(upload_url, fh.read(end - start + 1), start, end, size, i, count)
 
         result: dict = {}
 
@@ -232,6 +251,7 @@ class TikTokPublisher(Publisher):
                 raise PublishError(f"tiktok: publish failed: {result.get('fail_reason')}")
             return status in done_statuses
 
+        log.info("tiktok: upload done, waiting for TikTok to process it")
         poll(finished, timeout_s=float(s.get("processing_timeout_s", 900)), interval_s=10,
              what="TikTok to process the video")
 
