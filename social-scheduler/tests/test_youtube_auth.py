@@ -168,7 +168,7 @@ def test_upload_resumes_after_dropped_connection(monkeypatch, config, project):
     assert error_state_on_call == [False, True, True]
 
     # A connection that never recovers becomes a clean PublishError (retried on a later run).
-    outcomes = [BrokenPipeError(32, "Broken pipe")] * 10
+    outcomes = [BrokenPipeError(32, "Broken pipe")] * (yt.NETWORK_RETRIES + 1)
     monkeypatch.setattr(googleapiclient.discovery, "build", lambda *a, **k: Service(list(outcomes)))
     with pytest.raises(PublishError, match="kept losing its connection"):
         yt.YouTubePublisher(config, "main").publish(post, post.video_path(config))
