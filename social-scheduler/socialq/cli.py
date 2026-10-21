@@ -93,7 +93,9 @@ def cmd_add(args) -> int:
     if args.tags:
         entry["tags"] = [t.strip().lstrip("#") for t in args.tags.split(",") if t.strip()]
     if args.playlist:
-        entry["youtube"] = {"playlist": args.playlist}
+        entry.setdefault("youtube", {})["playlist"] = args.playlist
+    if args.comment:
+        entry.setdefault("youtube", {})["comment"] = args.comment
     for platform, text in (("instagram", args.ig_caption), ("tiktok", args.tiktok_caption)):
         if text is not None:
             entry[platform] = {"caption": text}
@@ -136,6 +138,10 @@ def cmd_list(args) -> int:
                 status += f" ({entry.get('attempts')}/{config.max_attempts}): {entry.get('last_error', '')[:100]}"
             elif status == "published":
                 status += f"  {entry.get('url') or entry.get('remote_id')}"
+                if target.platform == "youtube" and post.for_account(target.account).option("youtube", "comment"):
+                    status += {"posted": "  (comment posted - pin it)",
+                               "gave_up": f"  (comment not posted: {entry.get('comment_error')})"}.get(
+                        entry.get("comment_status"), "  (comment waits until the video is public)")
             print(f"        {target.key:<{width}} {status}")
     return 0
 
@@ -287,6 +293,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--caption", help="caption / description (tags are appended as #hashtags)")
     p.add_argument("--tags", help="comma separated, e.g. investing,stocks")
     p.add_argument("--playlist", help="youtube: add the upload to this playlist (its name or ID)")
+    p.add_argument("--comment", help="youtube: post this comment once the video is public (pin it yourself)")
     p.add_argument("--ig-caption", help="instagram: use this caption instead of --caption")
     p.add_argument("--tiktok-caption", help="tiktok: use this caption instead of --caption")
     p.add_argument("--at", help="'YYYY-MM-DD HH:MM' in your timezone; default = next free slot")

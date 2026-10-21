@@ -62,10 +62,10 @@ def run_once(
 ) -> list[Outcome]:
     now = now or datetime.now(config.timezone)
     state = State(config.state_file)
-    work = due_work(load_queue(config), state, config, now)
+    posts = load_queue(config)
+    work = due_work(posts, state, config, now)
     if not work:
         log.info("Nothing due.")
-        return []
 
     outcomes: list[Outcome] = []
     publishers: dict[Target, Publisher] = {}
@@ -110,7 +110,17 @@ def run_once(
 
     if not dry_run:
         notify(outcomes)
+        post_comments(config, state, posts, now)
     return outcomes
+
+
+def post_comments(config: Config, state: State, posts: list[Post], now: datetime) -> None:
+    """Queued YouTube comments; never lets a problem here fail the run."""
+    try:
+        from .platforms.youtube import post_pending_comments
+        post_pending_comments(config, state, posts, now)
+    except Exception:
+        log.error("Posting YouTube comments crashed:\n%s", traceback.format_exc())
 
 
 def notify(outcomes: list[Outcome]) -> None:

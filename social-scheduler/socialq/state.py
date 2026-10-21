@@ -64,6 +64,10 @@ class State:
         entry.update(status=WAITING, last_error=reason, failed_at=_iso(at))
         self.save()
 
+    def update(self, post_id: str, platform: str, **fields: Any) -> None:
+        self._entry(post_id, platform).update(fields)
+        self.save()
+
     def reset(self, post_id: str, platform: str | None = None) -> None:
         posts = self.data["posts"]
         if platform is None:

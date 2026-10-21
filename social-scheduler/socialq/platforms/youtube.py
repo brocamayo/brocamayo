@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from ..queue import Post
@@ -21,6 +22,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube.readonly",
     # Manage the channel's playlists (adding uploads to a playlist).
     "https://www.googleapis.com/auth/youtube",
+    # Post the queued comment under an upload (YouTube only allows this with force-ssl).
+    "https://www.googleapis.com/auth/youtube.force-ssl",
     # Which Google login was used, so a wrong pick can be explained.
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
@@ -140,6 +143,94 @@ def authorize(config, account: str, want: str | None = None, google_id: str | No
     channel_file(config, account).write_text(json.dumps(got, indent=2))
     print(f"\n✅ YouTube for '{account}' will post to: {got['title']}")
     return True
+
+
+COMMENT_SCOPE = "https://www.googleapis.com/auth/youtube.force-ssl"
+COMMENT_ATTEMPTS = 3
+COMMENT_WAIT_DAYS = 30      # stop checking a video that stays private this long
+
+
+class NoCommentScope(PublishError):
+    """The saved login predates comment support."""
+
+
+def _comment_client(config, account: str):
+    from googleapiclient.discovery import build
+
+    creds = _credentials(config, account)
+    granted = set(getattr(creds, "scopes", None) or [])
+    if granted and COMMENT_SCOPE not in granted:
+        raise NoCommentScope(f"youtube ({account}): this login predates comment support. "
+                             f"Run `{auth_hint('youtube', account, config)}` once to allow comments.")
+    return build("youtube", "v3", credentials=creds, cache_discovery=False)
+
+
+def pending_comments(config, state, posts) -> list[tuple]:
+    """(post, target, text, video_id) for YouTube uploads whose queued comment isn't posted yet."""
+    out = []
+    for post in posts:
+        for target in post.targets(config):
+            if target.platform != "youtube" or not state.is_published(post.id, target.key):
+                continue
+            text = post.for_account(target.account).option("youtube", "comment")
+            entry = state.get(post.id, target.key)
+            if text and str(text).strip() and entry.get("comment_status") not in ("posted", "gave_up"):
+                out.append((post, target, str(text).strip(), entry.get("remote_id")))
+    return out
+
+
+def post_pending_comments(config, state, posts, now: datetime, client_for=_comment_client) -> None:
+    """Post queued comments once their video is public or unlisted (private videos can't take comments).
+
+    Uploads stay private until the YouTube API audit passes, so this runs on every
+    `run`: the comment goes up within one run of the video being made public.
+    YouTube has no API for pinning, so pinning stays a one-tap job in Studio.
+    """
+    work = pending_comments(config, state, posts)
+    if not work:
+        return
+    from googleapiclient.errors import HttpError
+
+    clients: dict = {}
+    for post, target, text, video_id in work:
+        entry = state.get(post.id, target.key)
+        published = entry.get("published_at")
+        if published and datetime.fromisoformat(published) + timedelta(days=COMMENT_WAIT_DAYS) < now:
+            state.update(post.id, target.key, comment_status="gave_up",
+                         comment_error=f"video was still private after {COMMENT_WAIT_DAYS} days")
+            continue
+        if target.account not in clients:
+            try:
+                clients[target.account] = client_for(config, target.account)
+            except NotLoggedIn:
+                clients[target.account] = None
+            except NoCommentScope as exc:
+                log.warning("%s (comment for %s is waiting)", exc, post.id)
+                clients[target.account] = None
+        youtube = clients[target.account]
+        if youtube is None:
+            continue
+        try:
+            items = youtube.videos().list(part="status", id=video_id).execute().get("items", [])
+            if not items:
+                state.update(post.id, target.key, comment_status="gave_up", comment_error="video not found")
+                log.warning("youtube (%s): %s is gone, so its comment won't be posted", target.account, video_id)
+                continue
+            if items[0]["status"]["privacyStatus"] == "private":
+                log.debug("youtube (%s): comment for %s waits until the video is public", target.account, post.id)
+                continue
+            resp = youtube.commentThreads().insert(part="snippet", body={"snippet": {
+                "videoId": video_id, "topLevelComment": {"snippet": {"textOriginal": text}}}}).execute()
+        except HttpError as exc:
+            attempts = int(entry.get("comment_attempts", 0)) + 1
+            state.update(post.id, target.key, comment_attempts=attempts, comment_error=str(exc)[:300],
+                         comment_status="gave_up" if attempts >= COMMENT_ATTEMPTS else "pending")
+            log.warning("youtube (%s): posting the comment on %s failed (%d/%d): %s",
+                        target.account, post.id, attempts, COMMENT_ATTEMPTS, exc)
+            continue
+        state.update(post.id, target.key, comment_status="posted", comment_id=resp.get("id"), comment_error=None)
+        log.info("youtube (%s): comment posted on https://youtu.be/%s - pin it: open the video's comments, "
+                 "tap ⋮ on it, then Pin", target.account, video_id)
 
 
 PLAYLIST_SCOPES = {"https://www.googleapis.com/auth/youtube", "https://www.googleapis.com/auth/youtube.force-ssl"}

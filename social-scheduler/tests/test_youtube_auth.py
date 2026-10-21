@@ -260,3 +260,90 @@ def test_add_command_accepts_comma_separated_accounts(project):
     config = load_config(project / "config.yaml")
     [post] = load_queue(config)
     assert sorted(t.account for t in post.targets(config)) == ["main", "second"]
+
+
+class CommentYouTube:
+    """Fake client for videos().list and commentThreads().insert."""
+
+    def __init__(self, privacy):
+        self.privacy, self.comments = privacy, []
+
+    def videos(self):
+        return self
+
+    def commentThreads(self):
+        return self
+
+    def list(self, part, id):
+        return _Exec({"items": [{"id": id, "status": {"privacyStatus": self.privacy}}]})
+
+    def insert(self, part, body):
+        self.comments.append(body["snippet"])
+        return _Exec({"id": f"c{len(self.comments)}"})
+
+
+def published_post_with_comment(project, config):
+    from datetime import datetime, timezone
+    from socialq.queue import load_queue
+    from socialq.state import State
+
+    (project / "queue.yaml").write_text(
+        "- id: clip\n  video: clip.mp4\n  publish_at: '2026-10-05 17:00'\n  accounts: [main]\n"
+        "  platforms: [youtube]\n  title: T\n  youtube: {comment: 'Find your date: example.com'}\n")
+    state = State(config.state_file)
+    state.record_success("clip", "main/youtube", "vid9", "https://youtu.be/vid9",
+                         at=datetime(2026, 10, 5, tzinfo=timezone.utc))
+    return load_queue(config), state
+
+
+def test_comment_waits_for_public_then_posts_once(project, config):
+    from datetime import datetime, timezone
+
+    posts, state = published_post_with_comment(project, config)
+    now = datetime(2026, 10, 6, tzinfo=timezone.utc)
+    service = CommentYouTube("private")
+    yt.post_pending_comments(config, state, posts, now, client_for=lambda c, a: service)
+    assert service.comments == [] and state.get("clip", "main/youtube").get("comment_status") is None
+
+    service.privacy = "public"
+    yt.post_pending_comments(config, state, posts, now, client_for=lambda c, a: service)
+    yt.post_pending_comments(config, state, posts, now, client_for=lambda c, a: service)
+    assert service.comments == [{"videoId": "vid9",
+                                 "topLevelComment": {"snippet": {"textOriginal": "Find your date: example.com"}}}]
+    assert state.get("clip", "main/youtube")["comment_status"] == "posted"
+
+
+def test_comment_waits_for_a_login_with_comment_permission(project, config, caplog):
+    from datetime import datetime, timezone
+
+    posts, state = published_post_with_comment(project, config)
+
+    def old_login(cfg, account):
+        raise yt.NoCommentScope("youtube (main): this login predates comment support. Run `x` once")
+
+    yt.post_pending_comments(config, state, posts, datetime(2026, 10, 6, tzinfo=timezone.utc), client_for=old_login)
+    assert "predates comment support" in caplog.text
+    assert yt.pending_comments(config, state, posts)
+
+
+def test_comment_gives_up_on_a_video_that_stays_private(project, config):
+    from datetime import datetime, timezone
+
+    posts, state = published_post_with_comment(project, config)
+    service = CommentYouTube("private")
+    yt.post_pending_comments(config, state, posts, datetime(2026, 12, 1, tzinfo=timezone.utc),
+                             client_for=lambda c, a: service)
+    assert state.get("clip", "main/youtube")["comment_status"] == "gave_up"
+    assert not yt.pending_comments(config, state, posts)
+
+
+def test_add_command_stores_comment_and_playlist(project):
+    from socialq.cli import main
+    from socialq.config import load_config
+    from socialq.queue import load_queue
+
+    (project / "videos" / "v.mp4").write_bytes(b"x")
+    main(["-c", str(project / "config.yaml"), "add", str(project / "videos" / "v.mp4"), "--title", "T",
+          "--playlist", "Shorts", "--comment", "Pin me", "--at", "2026-10-01 09:00", "--accounts", "main"])
+    [post] = load_queue(load_config(project / "config.yaml"))
+    assert post.option("youtube", "playlist") == "Shorts" and post.option("youtube", "comment") == "Pin me"

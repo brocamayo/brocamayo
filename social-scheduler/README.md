@@ -78,7 +78,7 @@ The **developer app** for each platform (the keys in `.env` and the YouTube clie
 | `init [dir]` | Create starter `config.yaml`, `queue.yaml`, `.env` |
 | `accounts` | Show each account and which platforms are logged in |
 | `auth PLATFORM --account NAME` | Log in one account to `youtube`, `instagram`, `tiktok` or `x` |
-| `add VIDEO [--title --caption --tags --at --accounts --platforms --id --playlist --ig-caption --tiktok-caption]` | Queue a video. Without `--at` it takes the next free slot; without `--accounts` it goes to every account |
+| `add VIDEO [--title --caption --tags --at --accounts --platforms --id --playlist --comment --ig-caption --tiktok-caption]` | Queue a video. Without `--at` it takes the next free slot; without `--accounts` it goes to every account |
 | `list [-a]` | Show upcoming posts and their status on each account/platform |
 | `check` | Validate the queue: files exist, caption and title limits |
 | `run [--dry-run]` | Publish everything that's due, then exit. This is what the scheduled job runs |
@@ -116,6 +116,8 @@ Pass `-c path/to/config.yaml` before the command if you're not running from the 
 See `queue.example.yaml` for a full example. For vertical Shorts, put `#Shorts` in the title or description.
 
 On Instagram, TikTok and X the caption is used without `#Shorts` (it means nothing there). If the caption has no hashtags of its own, the tags are added as hashtags (`debt-free` becomes `#debtfree`). To write a different caption for one platform, use `--ig-caption` / `--tiktok-caption` with `add`, or a `caption:` override in the queue.
+
+**YouTube comment:** `--comment "Find your debt-free date: ..."` (or `youtube: {comment: ...}` in the queue) posts that comment under the video as the channel. Private videos can't take comments, so it goes up on the first run after the video is public or unlisted (the background job checks every 10 minutes). YouTube has no API for pinning: open the comments, tap ⋮ on yours, then **Pin**. Logins from before this feature need one `auth youtube` to allow comments.
 
 > ⚠️ Posting the exact same video and caption to two accounts on the same platform can be treated as duplicate or spam content, which limits reach. Use `per_account` text and `delay_minutes` to keep the accounts distinct.
 
