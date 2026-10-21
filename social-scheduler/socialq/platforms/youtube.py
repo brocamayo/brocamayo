@@ -13,7 +13,7 @@ from ..queue import Post
 from .base import NotLoggedIn, PublishError, PublishResult, Publisher, auth_hint, log
 
 UPLOAD_TIMEOUT_S = 120      # a connection that sends nothing for this long is treated as dropped
-NETWORK_RETRIES = 5
+NETWORK_RETRIES = 10     # in a row; the upload resumes where it stopped after each one
 NETWORK_ERRORS = (OSError, TimeoutError)  # BrokenPipe, ConnectionReset, socket timeouts, SSL errors
 
 SCOPES = [
