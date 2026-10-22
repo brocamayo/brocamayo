@@ -96,7 +96,8 @@ def cmd_add(args) -> int:
         entry.setdefault("youtube", {})["playlist"] = args.playlist
     if args.comment:
         entry.setdefault("youtube", {})["comment"] = args.comment
-    for platform, text in (("instagram", args.ig_caption), ("tiktok", args.tiktok_caption)):
+    for platform, text in (("instagram", args.ig_caption), ("facebook", args.fb_caption),
+                           ("tiktok", args.tiktok_caption)):
         if text is not None:
             entry[platform] = {"caption": text}
     if any(p.id == entry["id"] for p in posts):
@@ -242,6 +243,8 @@ def cmd_accounts(args) -> int:
                             == saved.get("open_id")]
                     if same:
                         info += f"  ⚠️ same TikTok account as '{same[0]}'"
+                if platform == "facebook" and saved.get("page_name"):
+                    info = f" as the Page {saved['page_name']}"
                 if platform == "instagram" and saved.get("expires_at"):
                     info += f", expires {datetime.fromtimestamp(saved['expires_at']):%Y-%m-%d}"
             except (ValueError, OSError):
@@ -267,6 +270,9 @@ def cmd_auth(args) -> int:
         elif args.platform == "x":
             from .platforms.x import authorize
             authorize(config, account)
+        elif args.platform == "facebook":
+            from .platforms.facebook import authorize
+            authorize(config, account, args.token, page=args.page)
         else:
             from .platforms.instagram import authorize
             authorize(config, account, args.token, refresh=args.refresh, ig_username=args.ig_username)
@@ -295,6 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--playlist", help="youtube: add the upload to this playlist (its name or ID)")
     p.add_argument("--comment", help="youtube: post this comment once the video is public (pin it yourself)")
     p.add_argument("--ig-caption", help="instagram: use this caption instead of --caption")
+    p.add_argument("--fb-caption", help="facebook: use this caption instead of --caption")
     p.add_argument("--tiktok-caption", help="tiktok: use this caption instead of --caption")
     p.add_argument("--at", help="'YYYY-MM-DD HH:MM' in your timezone; default = next free slot")
     p.add_argument("-a", "--accounts", nargs="+", help="which accounts (default: all)")
@@ -333,7 +340,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--channel", help="youtube: the channel handle you expect, e.g. @brocmayo (checked after login)")
     p.add_argument("--google-id", help="youtube: Google account ID to log in as, e.g. a Brand Account's "
                    "number from myaccount.google.com/brandaccounts")
-    p.add_argument("--token", help="instagram: short-lived token from Graph API Explorer")
+    p.add_argument("--token", help="instagram/facebook: token from the Meta dashboard or Graph API Explorer")
+    p.add_argument("--page", help="facebook: which Page to post to (its name or ID)")
     p.add_argument("--ig-username", help="instagram: which linked IG account, e.g. @myhandle")
     p.add_argument("--refresh", action="store_true", help="instagram: extend the saved token")
     p.set_defaults(func=cmd_auth)

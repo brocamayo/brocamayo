@@ -1,6 +1,6 @@
-# socialq: schedule videos to YouTube, Instagram, TikTok and X
+# socialq: schedule videos to YouTube, Instagram, Facebook, TikTok and X
 
-Drop a video in a folder, add one line to a queue, and it gets posted to **YouTube**, **Instagram Reels**, **TikTok** and **X** on **as many accounts as you have**, at the time you picked, with the right title, caption and hashtags for each platform. It uses each platform's official API, so there's no browser automation and no risk of an account ban.
+Drop a video in a folder, add one line to a queue, and it gets posted to **YouTube**, **Instagram Reels**, **Facebook Pages**, **TikTok** and **X** on **as many accounts as you have**, at the time you picked, with the right title, caption and hashtags for each platform. It uses each platform's official API, so there's no browser automation and no risk of an account ban.
 
 ```
 python -m socialq add videos/nvda-earnings.mp4 --title "NVIDIA earnings in 60s" \
@@ -13,7 +13,7 @@ A scheduled job runs `python -m socialq run` every few minutes. It uploads whate
 
 ## What it does
 
-- **One queue, four platforms, several accounts.** You write one caption. Tags become YouTube tags and are added as `#hashtags` everywhere else. You can override the text per platform and per account.
+- **One queue, five platforms, several accounts.** You write one caption. Tags become YouTube tags and are added as `#hashtags` everywhere else. You can override the text per platform and per account.
 - **Staggered accounts.** Give an account a `delay_minutes` and it posts that long after the others, so two accounts don't publish identical videos at the same moment.
 - **Posting slots.** You set your posting times once (`mon,wed,fri 17:00`), and `add` puts each new video in the next open slot.
 - **Safe to re-run.** State lives in `state.json`. If one account or platform fails, the rest still post. A failed upload is retried later (after 30 min, up to 3 attempts by default). A platform you haven't logged in to yet just waits, without using up retries.
@@ -115,7 +115,7 @@ Pass `-c path/to/config.yaml` before the command if you're not running from the 
 
 See `queue.example.yaml` for a full example. For vertical Shorts, put `#Shorts` in the title or description.
 
-On Instagram, TikTok and X the caption is used without `#Shorts` (it means nothing there). If the caption has no hashtags of its own, the tags are added as hashtags (`debt-free` becomes `#debtfree`). To write a different caption for one platform, use `--ig-caption` / `--tiktok-caption` with `add`, or a `caption:` override in the queue.
+On Instagram, Facebook, TikTok and X the caption is used without `#Shorts` (it means nothing there). If the caption has no hashtags of its own, the tags are added as hashtags (`debt-free` becomes `#debtfree`). To write a different caption for one platform, use `--ig-caption` / `--fb-caption` / `--tiktok-caption` with `add`, or a `caption:` override in the queue.
 
 **YouTube comment:** `--comment "Find your debt-free date: ..."` (or `youtube: {comment: ...}` in the queue) posts that comment under the video as the channel. Private videos can't take comments, so it goes up on the first run after the video is public or unlisted (the background job checks every 10 minutes). YouTube has no API for pinning: open the comments, tap ⋮ on yours, then **Pin**. Logins from before this feature need one `auth youtube` to allow comments.
 
@@ -162,6 +162,15 @@ The tool checks which @account each token belongs to (add `--ig-username @handle
 </details>
 
 Videos upload directly from your computer, so they don't need to be hosted anywhere. Instagram limits API publishing to about 50 posts per account per 24 hours.
+
+### Facebook (Pages)
+
+Meta only lets apps post to a **Facebook Page**, not a personal profile. Short vertical videos (90 seconds or less) go up as **Reels**; longer or horizontal ones as regular video posts with the title and description. Set `facebook: {as: reel}` or `{as: video}` in config.yaml or on a post to force one.
+
+1. In the same Meta app (or a new one), add the use case **"Manage everything on your Page"**. Copy **App settings → Basic → App ID** and **App secret** into `.env` as `META_APP_ID` and `META_APP_SECRET`.
+2. Open [Graph API Explorer](https://developers.facebook.com/tools/explorer/), pick your app and **User Token**, add the permissions `pages_show_list`, `pages_read_engagement` and `pages_manage_posts`, then click **Generate Access Token** and tick your Pages.
+3. Run `./sq auth facebook --account brocmayo --token <that token> --page "Page name"`. The same token works for the other account with a different `--page`. Page logins don't expire.
+4. Switch the app to **Live** (top of the dashboard). While it's in Development mode, Facebook shows the Page's API posts only to people with a role on the app.
 
 ### TikTok
 

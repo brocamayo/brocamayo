@@ -21,10 +21,10 @@ retry_delay_minutes: 30         # wait this long before retrying a failed upload
 # ---------------------------------------------------------------------------
 accounts:
   main:
-    platforms: [youtube, instagram, tiktok, x]
+    platforms: [youtube, instagram, facebook, tiktok, x]
 
   second:
-    platforms: [youtube, instagram, tiktok, x]
+    platforms: [youtube, instagram, facebook, tiktok, x]
     delay_minutes: 60           # post an hour after `main` so it isn't flagged as a duplicate
     # Any platform setting below can be overridden per account, e.g.:
     # tiktok: {mode: direct}
@@ -43,6 +43,11 @@ instagram:
   api_version: v25.0
   graph_host: graph.facebook.com   # use graph.instagram.com if you set up "Instagram API with Instagram Login"
   share_to_feed: true              # show the Reel on your main grid too
+
+facebook:                        # posts to a Facebook Page (Meta doesn't allow posting to profiles)
+  api_version: v25.0
+  as: auto                         # auto = short vertical videos become Reels, the rest regular videos
+                                   # (or always `reel` / always `video`)
 
 tiktok:
   # inbox  = video lands in your TikTok inbox as a draft, you tap Post (works right away)

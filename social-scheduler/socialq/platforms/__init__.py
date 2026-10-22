@@ -3,6 +3,7 @@ from __future__ import annotations
 from ..config import Config
 from ..queue import Target
 from .base import NotLoggedIn, PublishError, PublishResult, Publisher
+from .facebook import FacebookPublisher
 from .instagram import InstagramPublisher
 from .tiktok import TikTokPublisher
 from .x import XPublisher
@@ -11,6 +12,7 @@ from .youtube import YouTubePublisher
 PUBLISHERS: dict[str, type[Publisher]] = {
     "youtube": YouTubePublisher,
     "instagram": InstagramPublisher,
+    "facebook": FacebookPublisher,
     "tiktok": TikTokPublisher,
     "x": XPublisher,
 }

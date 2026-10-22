@@ -124,7 +124,7 @@ class Post:
         return " ".join(f"#{t}" for t in tags if t and t.lower() not in YOUTUBE_ONLY_TAGS)
 
     def social_caption(self, platform: str) -> str:
-        """Caption for Instagram/TikTok/X: an override wins, else the caption without
+        """Caption for Instagram/Facebook/TikTok/X: an override wins, else the caption without
         YouTube-only hashtags (#Shorts), plus the tags as hashtags if it has none of its own."""
         override = self.option(platform, "caption")
         if override is not None:

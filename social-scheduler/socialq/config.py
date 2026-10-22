@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-PLATFORMS = ("youtube", "instagram", "tiktok", "x")
+PLATFORMS = ("youtube", "instagram", "facebook", "tiktok", "x")
 DEFAULT_ACCOUNT = "main"
 
 
