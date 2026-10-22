@@ -374,3 +374,33 @@ def test_accounts_flags_two_accounts_on_the_same_tiktok(project, config, capsys)
     main(["-c", str(project / "config.yaml"), "accounts"])
     out = capsys.readouterr().out
     assert "tiktok     logged in as Snowballer  ⚠️ same TikTok account as 'second'" in out
+
+
+def test_instagram_token_is_trimmed_and_tried_on_instagram_login_first(project, config, monkeypatch):
+    from socialq.platforms import instagram as ig
+
+    seen = []
+
+    def fake_get(url, params, timeout):
+        seen.append(params.get("access_token"))
+        if url.endswith("/me"):
+            return FakeResponse(200, {"user_id": "1", "username": "snowballerapp"})
+        if url.endswith("/refresh_access_token"):
+            return FakeResponse(400, {})
+        raise AssertionError(url)
+
+    monkeypatch.delenv("INSTAGRAM_APP_SECRET", raising=False)
+    monkeypatch.setenv("META_APP_ID", "app")
+    monkeypatch.setattr(ig.requests, "get", fake_get)
+    ig.authorize(config, "main", "  EAAtoken\n", ig_username="@snowballerapp")
+    assert seen[0] == "EAAtoken"
+    saved = json.loads((project / "credentials" / "main" / "instagram_token.json").read_text())
+    assert saved["username"] == "snowballerapp" and saved["host"] == "graph.instagram.com"
+
+
+def test_bad_instagram_token_says_what_it_starts_with(project, config, monkeypatch):
+    from socialq.platforms import instagram as ig
+    monkeypatch.delenv("META_APP_ID", raising=False)
+    monkeypatch.setattr(ig.requests, "get", lambda url, params, timeout: FakeResponse(400, {"error": "bad"}))
+    with pytest.raises(PublishError, match="starts with 'nope'"):
+        ig.authorize(config, "main", "nope-token")

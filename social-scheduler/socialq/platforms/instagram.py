@@ -126,8 +126,21 @@ def _choose_ig_account(base: str, token: str, wanted: str | None) -> str:
 def authorize(config, account: str, short_lived_token: str | None, refresh: bool = False,
               ig_username: str | None = None) -> None:
     """Swap a short-lived Meta user token for a ~60-day one and pick the IG account."""
+    if short_lived_token:
+        # Pasted tokens often carry a stray space, newline or quotes.
+        short_lived_token = short_lived_token.strip().strip("'\"").strip()
     if short_lived_token and short_lived_token.startswith("IG"):
         return authorize_instagram_login(config, account, short_lived_token, ig_username)
+    if short_lived_token:
+        # Try Instagram Login first: it's the usual route, and its tokens don't always start with IG.
+        try:
+            return authorize_instagram_login(config, account, short_lived_token, ig_username)
+        except PublishError as exc:
+            if "that token is for" in str(exc):
+                raise
+            if not os.environ.get("META_APP_ID"):
+                raise PublishError(f"{exc}\nCopy it again with the Copy button next to Generate token; "
+                                   f"it should start with IG (this one starts with {short_lived_token[:4]!r}).")
     token_file = _token_path(config, account)
     saved = json.loads(token_file.read_text()) if token_file.exists() else {}
     if refresh and saved.get("host") == IG_LOGIN_HOST:
@@ -153,7 +166,9 @@ def authorize(config, account: str, short_lived_token: str | None, refresh: bool
         "client_secret": app_secret, "fb_exchange_token": source,
     }, timeout=60)
     if not resp.ok:
-        raise PublishError(f"instagram: token exchange failed: {error_text(resp)}")
+        raise PublishError(f"instagram: that token didn't work: {error_text(resp)}\nIf it's from 'API setup "
+                           f"with Instagram login', copy it again with the Copy button; it should start with IG "
+                           f"(this one starts with {source[:4]!r}).")
     data = resp.json()
     token = data["access_token"]
     expires_at = int(time.time()) + int(data.get("expires_in", 60 * 86400))
