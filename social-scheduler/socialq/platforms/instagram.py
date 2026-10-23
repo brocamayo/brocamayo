@@ -97,30 +97,34 @@ def authorize_instagram_login(config, account: str, token: str, ig_username: str
     print(f"Instagram logged in for '{account}' as @{username}. It renews itself automatically.")
 
 
-def _choose_ig_account(base: str, token: str, wanted: str | None) -> str:
-    pages = requests.get(f"{base}/me/accounts", params={
-        "fields": "name,instagram_business_account{id,username}", "access_token": token, "limit": 100,
-    }, timeout=60).json().get("data", [])
-    linked = [p["instagram_business_account"] | {"page": p["name"]}
-              for p in pages if p.get("instagram_business_account")]
+def _choose_ig_account(base: str, token: str, wanted: str | None) -> dict:
+    """The linked Instagram account to use: {id, username, page, page_token}."""
+    resp = requests.get(f"{base}/me/accounts", params={
+        "fields": "name,access_token,instagram_business_account{id,username}", "access_token": token, "limit": 100,
+    }, timeout=60)
+    if not resp.ok:
+        raise PublishError(f"instagram: couldn't list your Facebook Pages: {error_text(resp)}")
+    linked = [p["instagram_business_account"] | {"page": p["name"], "page_token": p.get("access_token")}
+              for p in resp.json().get("data", []) if p.get("instagram_business_account")]
     if not linked:
-        raise PublishError("instagram: no Instagram professional account is linked to your Facebook Pages")
+        raise PublishError("instagram: none of your Facebook Pages has an Instagram account linked. Link it in "
+                           "the Page's settings (Linked accounts -> Instagram), then generate a new token")
     if wanted:
         wanted = wanted.lstrip("@").lower()
         for ig in linked:
             if wanted in (ig["id"], str(ig.get("username", "")).lower()):
-                return ig["id"]
+                return ig
         raise PublishError(f"instagram: @{wanted} isn't linked to any of your Facebook Pages "
                            f"(found: {', '.join('@' + str(i.get('username')) for i in linked)})")
     if len(linked) == 1:
-        return linked[0]["id"]
+        return linked[0]
     print("Which Instagram account is this?")
     for i, ig in enumerate(linked, 1):
         print(f"  {i}. @{ig.get('username')}  (Page: {ig['page']})")
     choice = input("Number: ").strip()
     if not choice.isdigit() or not 1 <= int(choice) <= len(linked):
         raise PublishError("instagram: no account picked")
-    return linked[int(choice) - 1]["id"]
+    return linked[int(choice) - 1]
 
 
 def authorize(config, account: str, short_lived_token: str | None, refresh: bool = False,
@@ -172,15 +176,22 @@ def authorize(config, account: str, short_lived_token: str | None, refresh: bool
     data = resp.json()
     token = data["access_token"]
     expires_at = int(time.time()) + int(data.get("expires_in", 60 * 86400))
+    ig = _choose_ig_account(base, token, ig_username)
 
-    ig_user_id = saved.get("ig_user_id") if refresh and not ig_username else None
-    ig_user_id = ig_user_id or _choose_ig_account(base, token, ig_username)
-
+    host = config.settings(account, "instagram").get("graph_host", "graph.facebook.com")
+    if host == IG_LOGIN_HOST:
+        host = "graph.facebook.com"
+    saved = {"ig_user_id": ig["id"], "username": ig.get("username"), "page": ig["page"], "host": host}
+    if ig.get("page_token"):
+        # A Page token made from a long-lived user token doesn't expire.
+        saved["access_token"] = ig["page_token"]
+    else:
+        saved.update(access_token=token, expires_at=expires_at)
     token_file.parent.mkdir(parents=True, exist_ok=True)
-    token_file.write_text(json.dumps(
-        {"ig_user_id": ig_user_id, "access_token": token, "expires_at": expires_at}, indent=2))
-    print(f"Instagram logged in for '{account}' (IG id {ig_user_id}); "
-          f"expires {time.strftime('%Y-%m-%d', time.localtime(expires_at))}.")
+    token_file.write_text(json.dumps(saved, indent=2))
+    expiry = ("This login doesn't expire." if "expires_at" not in saved else
+              f"It expires {time.strftime('%Y-%m-%d', time.localtime(expires_at))}.")
+    print(f"Instagram logged in for '{account}' as @{ig.get('username')} (through the Page {ig['page']}). {expiry}")
 
 
 class InstagramPublisher(Publisher):
@@ -190,6 +201,12 @@ class InstagramPublisher(Publisher):
         s = self.settings
         version = s.get("api_version", DEFAULT_API_VERSION)
         user_id, token, host = load_credentials(self.config, self.account)
+        if host == IG_LOGIN_HOST:
+            # Instagram Login only takes a public video_url; uploading from this computer needs
+            # the Facebook-login route. Waits (without using up retries) until the account is re-linked.
+            raise NotLoggedIn(f"instagram ({self.account}): this login can't upload videos from your computer. "
+                              f"Log in through your Facebook Page: `{auth_hint('instagram', self.account, self.config)}"
+                              f" --token <Graph API Explorer token>` (see README)")
         base = f"https://{host}/{version}"
 
         # 1. Create a Reels container that expects a resumable upload.

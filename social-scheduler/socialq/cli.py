@@ -194,6 +194,16 @@ def cmd_watch(args) -> int:
 def cmd_retry(args) -> int:
     config = load_config(args.config)
     state = State(config.state_file)
+    if args.post_id == "failed":
+        # Every failed upload (optionally only on one platform/account); published ones are never touched.
+        reset = []
+        for post_id, entries in list(state.data["posts"].items()):
+            for key in list(entries):
+                if entries[key].get("status") == "failed" and (not args.where or args.where in (key, *key.split("/"))):
+                    state.reset(post_id, key)
+                    reset.append(f"{post_id} {key}")
+        print("\n".join(["Reset (they'll be retried on the next run):", *reset]) if reset else "Nothing has failed.")
+        return 0
     keys = list(state.data["posts"].get(args.post_id, {}))
     if args.where:
         keys = [k for k in keys if args.where in (k, *k.split("/"))]
@@ -327,7 +337,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_watch)
 
     p = sub.add_parser("retry", help="clear a failed/finished status so it posts again")
-    p.add_argument("post_id")
+    p.add_argument("post_id", help="a post id, or `failed` for every failed upload")
     p.add_argument("where", nargs="?", help="e.g. youtube, second, or second/youtube (default: all)")
     p.set_defaults(func=cmd_retry)
 

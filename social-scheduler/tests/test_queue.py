@@ -131,3 +131,23 @@ def test_add_command_per_platform_captions(project):
     assert post.social_caption("instagram") == "Link in bio"
     assert post.social_caption("tiktok") == "For TikTok"
     assert post.social_caption("x") == "Everywhere"
+
+
+def test_retry_failed_resets_only_failed_uploads(project, capsys):
+    from socialq.cli import main
+    from socialq.config import load_config
+    from socialq.state import State
+
+    state = State(load_config(project / "config.yaml").state_file)
+    state.record_failure("a", "main/instagram", "boom")
+    state.record_failure("b", "main/tiktok", "boom")
+    state.record_success("b", "main/instagram", "m1", None)
+    state.record_waiting("c", "main/instagram", "log in")
+
+    assert main(["-c", str(project / "config.yaml"), "retry", "failed", "instagram"]) == 0
+    assert "a main/instagram" in capsys.readouterr().out
+    state = State(load_config(project / "config.yaml").state_file)
+    assert state.get("a", "main/instagram") == {}
+    assert state.get("b", "main/tiktok")["status"] == "failed"
+    assert state.is_published("b", "main/instagram")
+    assert state.get("c", "main/instagram")["status"] == "waiting"

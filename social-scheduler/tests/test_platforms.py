@@ -303,8 +303,10 @@ def test_instagram_login_token_for_wrong_account_is_rejected(config, monkeypatch
         ig.authorize(config, "main", "IGshort", ig_username="brocmayo")
 
 
-def test_instagram_login_posts_via_instagram_host_and_renews_before_expiry(project, config, monkeypatch):
+def test_instagram_login_token_waits_for_facebook_route_but_still_renews(project, config, monkeypatch):
+    """Instagram Login can't take local uploads (Meta wants a public video_url), so those posts wait."""
     from socialq.platforms import instagram as ig
+    from socialq.platforms.base import NotLoggedIn
 
     (project / "credentials" / "main").mkdir(exist_ok=True)
     token_file = project / "credentials" / "main" / "instagram_token.json"
@@ -313,18 +315,40 @@ def test_instagram_login_posts_via_instagram_host_and_renews_before_expiry(proje
     monkeypatch.setattr(ig.requests, "get", lambda url, params, timeout: FakeResponse(
         200, {"access_token": "IGnew", "expires_in": 5184000}))
     post, video = one_post(project, config, "[instagram]")
-    session = FakeSession([
-        ("POST", "graph.instagram.com/v25.0/17841/media_publish", FakeResponse(200, {"id": "m9"})),
-        ("POST", "graph.instagram.com/v25.0/17841/media", FakeResponse(200, {"id": "c1", "uri": "https://rupload.facebook.com/x/c1"})),
-        ("POST", "rupload.facebook.com", FakeResponse(200, {"success": True})),
-        ("GET", "graph.instagram.com/v25.0/c1", FakeResponse(200, {"status_code": "FINISHED"})),
-        ("GET", "graph.instagram.com/v25.0/m9", FakeResponse(200, {"permalink": "https://instagram.com/reel/z"})),
-    ])
-    result = InstagramPublisher(config, "main", session=session).publish(post, video)
-    assert result.url == "https://instagram.com/reel/z"
-    assert session.calls[0][2]["data"]["access_token"] == "IGnew"
+    session = FakeSession([])
+    with pytest.raises(NotLoggedIn, match="through your Facebook Page"):
+        InstagramPublisher(config, "main", session=session).publish(post, video)
+    assert session.calls == []
     saved = json.loads(token_file.read_text())
     assert saved["access_token"] == "IGnew" and saved["expires_at"] > time.time() + 50 * 86400
+
+
+def test_facebook_route_saves_the_pages_non_expiring_token(project, config, monkeypatch, capsys):
+    from socialq.platforms import instagram as ig
+
+    def fake_get(url, params, timeout):
+        if url.endswith("graph.instagram.com/v25.0/me"):
+            return FakeResponse(400, {"error": "not an IG token"})
+        if url.endswith("/oauth/access_token"):
+            return FakeResponse(200, {"access_token": "long-user", "expires_in": 5184000})
+        if url.endswith("/me/accounts"):
+            assert params["access_token"] == "long-user"
+            return FakeResponse(200, {"data": [
+                {"name": "Broc", "access_token": "pt-broc"},
+                {"name": "Snowballer", "access_token": "pt-snow",
+                 "instagram_business_account": {"id": "1784", "username": "snowballerapp"}}]})
+        raise AssertionError(url)
+
+    monkeypatch.setenv("META_APP_ID", "app")
+    monkeypatch.setenv("META_APP_SECRET", "secret")
+    monkeypatch.setattr(ig.requests, "get", fake_get)
+    ig.authorize(config, "main", "EAAshort", ig_username="@snowballerapp")
+    saved = json.loads((project / "credentials" / "main" / "instagram_token.json").read_text())
+    assert saved == {"ig_user_id": "1784", "username": "snowballerapp", "page": "Snowballer",
+                     "host": "graph.facebook.com", "access_token": "pt-snow"}
+    assert "doesn't expire" in capsys.readouterr().out
+    user_id, token, host = ig.load_credentials(config, "main")
+    assert (user_id, token, host) == ("1784", "pt-snow", "graph.facebook.com")
 
 
 def test_tiktok_login_asks_only_for_scopes_the_mode_needs(project, config, monkeypatch):

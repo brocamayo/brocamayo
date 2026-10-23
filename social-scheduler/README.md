@@ -145,20 +145,17 @@ Several steps ask for a **redirect URI** (a web address the login sends you back
 
 ### Instagram (Reels)
 
-Each Instagram account must be a **Business or Creator** (professional) account. **No Facebook Page is needed.**
+Each Instagram account must be a **Business or Creator** (professional) account **linked to a Facebook Page** (on Facebook: the Page's **Settings → Linked accounts → Instagram**). Meta only accepts uploads straight from your computer through this Facebook route; the "Instagram login" route needs every video on a public web address, so the tool doesn't use it for posting.
 
-1. At [developers.facebook.com/apps](https://developers.facebook.com/apps), click **Create app**. Pick the use case **"Manage messaging & content on Instagram"**, then finish creating the app.
-2. In the app, open **Instagram → API setup with Instagram login**. Copy the **Instagram app secret** into `.env` as `INSTAGRAM_APP_SECRET`.
-3. Under **Generate access tokens**, click **Add account** and log in to your first Instagram account, then click **Generate token** and copy it (it starts with `IG`).
-4. Run `./sq auth instagram --account brocmayo --token <that token>`. Repeat steps 3–4 for the second account (`--account snowballer`).
+1. Create a Meta app at [developers.facebook.com/apps](https://developers.facebook.com/apps) with the use cases **"Manage messaging & content on Instagram"** and **"Manage everything on your Page"**. Put **App settings → Basic → App ID** and **App secret** in `.env` as `META_APP_ID` and `META_APP_SECRET`.
+2. In [Graph API Explorer](https://developers.facebook.com/tools/explorer/), pick your app and **User Token**, add `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `instagram_basic` and `instagram_content_publish`, click **Generate Access Token** and tick your Pages and Instagram accounts.
+3. Run `./sq auth instagram --account NAME --ig-username @handle --token <that token>`. The same token also logs in Facebook (below). It saves the Page's token, which doesn't expire.
 
-The tool checks which @account each token belongs to (add `--ig-username @handle` to have it refuse a mismatch) and **renews the login automatically** before it expires. `./sq accounts` shows each login's @username.
+`./sq accounts` shows each login's @username. If an earlier upload failed, `./sq retry failed instagram` queues every failed Instagram upload again (published ones are never touched).
 
-<details><summary>Older route: Instagram API with Facebook Login (needs a linked Facebook Page)</summary>
+<details><summary>Instagram API with Instagram Login (no Page, but can't upload from your computer)</summary>
 
-1. Create a **Business** app and add the **Instagram** product; put its App ID and Secret in `.env` as `META_APP_ID` and `META_APP_SECRET`.
-2. In [Graph API Explorer](https://developers.facebook.com/tools/explorer/), generate a user token with `instagram_basic`, `instagram_content_publish`, `pages_show_list` and `pages_read_engagement`.
-3. Run `./sq auth instagram --account NAME --token <that token>`; it swaps it for a 60-day token and asks which linked Instagram account it is. Extend it before 60 days with `--refresh`.
+A token from **Instagram → API setup with Instagram login** (it starts with `IG`) is accepted by `auth instagram` and renews itself, but Meta only lets that route publish videos from a public URL, so posts wait until the account is logged in through a Page as above.
 </details>
 
 Videos upload directly from your computer, so they don't need to be hosted anywhere. Instagram limits API publishing to about 50 posts per account per 24 hours.
@@ -168,8 +165,8 @@ Videos upload directly from your computer, so they don't need to be hosted anywh
 Meta only lets apps post to a **Facebook Page**, not a personal profile. Short vertical videos (90 seconds or less) go up as **Reels**; longer or horizontal ones as regular video posts with the title and description. Set `facebook: {as: reel}` or `{as: video}` in config.yaml or on a post to force one.
 
 1. In the same Meta app (or a new one), add the use case **"Manage everything on your Page"**. Copy **App settings → Basic → App ID** and **App secret** into `.env` as `META_APP_ID` and `META_APP_SECRET`.
-2. Open [Graph API Explorer](https://developers.facebook.com/tools/explorer/), pick your app and **User Token**, add the permissions `pages_show_list`, `pages_read_engagement` and `pages_manage_posts`, then click **Generate Access Token** and tick your Pages.
-3. Run `./sq auth facebook --account brocmayo --token <that token> --page "Page name"`. The same token works for the other account with a different `--page`. Page logins don't expire.
+2. Open [Graph API Explorer](https://developers.facebook.com/tools/explorer/), pick your app and **User Token**, add the permissions `pages_show_list`, `pages_read_engagement` and `pages_manage_posts` (plus `instagram_basic` and `instagram_content_publish` to log in Instagram with the same token), then click **Generate Access Token** and tick your Pages.
+3. Run `./sq auth facebook --account brocmayo --token <that token> --page "Page name"`. The same token works for the other account with a different `--page`, and for `auth instagram`. Page logins don't expire.
 4. Switch the app to **Live** (top of the dashboard). While it's in Development mode, Facebook shows the Page's API posts only to people with a role on the app.
 
 ### TikTok
