@@ -13,7 +13,7 @@ from pathlib import Path
 from .config import PLATFORMS, load_config
 from .platforms import PublishError
 from .platforms.base import auth_hint, command_name
-from .queue import DATETIME_FORMAT, append_to_queue, load_queue, parse_datetime, validate
+from .queue import DATETIME_FORMAT, append_to_queue, load_queue, parse_datetime, remove_from_queue, validate
 from .scheduler import run_once
 from .slots import next_free_slot
 from .state import AlreadyRunning, State, run_lock
@@ -216,6 +216,21 @@ def cmd_retry(args) -> int:
     return 0
 
 
+def cmd_remove(args) -> int:
+    config = load_config(args.config)
+    state = State(config.state_file)
+    posts = {p.id: p for p in load_queue(config)}
+    if args.post_id not in posts:
+        print(f"No post {args.post_id!r} in the queue", file=sys.stderr)
+        return 1
+    done = [t.key for t in posts[args.post_id].targets(config) if state.is_published(args.post_id, t.key)]
+    remove_from_queue(config, args.post_id)
+    print(f"Removed {args.post_id} from the queue; nothing more of it will be posted.")
+    if done:
+        print(f"  already posted (left as is): {', '.join(done)}")
+    return 0
+
+
 def _tiktok_open_id(config, account: str) -> str | None:
     import json
 
@@ -322,6 +337,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("list", help="show upcoming posts and their status")
     p.add_argument("-a", "--all", action="store_true", help="include fully published posts")
     p.set_defaults(func=cmd_list)
+
+    p = sub.add_parser("remove", help="take a post out of the queue (what's already posted stays up)")
+    p.add_argument("post_id")
+    p.set_defaults(func=cmd_remove)
 
     p = sub.add_parser("check", help="validate the queue (files exist, caption limits)")
     p.set_defaults(func=cmd_check)

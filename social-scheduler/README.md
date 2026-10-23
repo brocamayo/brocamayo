@@ -77,13 +77,14 @@ The **developer app** for each platform (the keys in `.env` and the YouTube clie
 |---|---|
 | `init [dir]` | Create starter `config.yaml`, `queue.yaml`, `.env` |
 | `accounts` | Show each account and which platforms are logged in |
-| `auth PLATFORM --account NAME` | Log in one account to `youtube`, `instagram`, `tiktok` or `x` |
-| `add VIDEO [--title --caption --tags --at --accounts --platforms --id --playlist --comment --ig-caption --tiktok-caption]` | Queue a video. Without `--at` it takes the next free slot; without `--accounts` it goes to every account |
+| `auth PLATFORM --account NAME` | Log in one account to `youtube`, `instagram`, `facebook`, `tiktok` or `x` |
+| `add VIDEO [--title --caption --tags --at --accounts --platforms --id --playlist --comment --ig-caption --fb-caption --tiktok-caption]` | Queue a video. Without `--at` it takes the next free slot; without `--accounts` it goes to every account |
 | `list [-a]` | Show upcoming posts and their status on each account/platform |
 | `check` | Validate the queue: files exist, caption and title limits |
 | `run [--dry-run]` | Publish everything that's due, then exit. This is what the scheduled job runs |
 | `watch [--every 5]` | Keep running and check every N minutes, instead of using cron |
-| `retry POST_ID [where]` | Clear a status so it's attempted again. `where` can be `youtube`, `second`, or `second/youtube` |
+| `retry POST_ID [where]` | Clear a status so it's attempted again. `where` can be `youtube`, `second`, or `second/youtube`. `retry failed [where]` does every failed upload |
+| `remove POST_ID` | Take a post out of the queue, e.g. when you re-cut the video. What's already posted stays up |
 
 Pass `-c path/to/config.yaml` before the command if you're not running from the project folder.
 

@@ -151,3 +151,30 @@ def test_retry_failed_resets_only_failed_uploads(project, capsys):
     assert state.get("b", "main/tiktok")["status"] == "failed"
     assert state.is_published("b", "main/instagram")
     assert state.get("c", "main/instagram")["status"] == "waiting"
+
+
+def test_remove_takes_one_post_out_and_keeps_the_rest(project, capsys):
+    from socialq.cli import main
+    from socialq.config import load_config
+    from socialq.queue import load_queue
+    from socialq.state import State
+
+    (project / "videos" / "v.mp4").write_bytes(b"x")
+    cfg = str(project / "config.yaml")
+    (project / "queue.yaml").write_text("# my queue\n")
+    for pid in ("first", "middle", "last"):
+        assert main(["-c", cfg, "add", str(project / "videos" / "v.mp4"), "--id", pid, "--title", "T",
+                     "--caption", "line one\n\nline two #Shorts", "--at", "2026-11-01 09:00"]) == 0
+    State(load_config(project / "config.yaml").state_file).record_success("middle", "main/youtube", "y1", None)
+
+    assert main(["-c", cfg, "remove", "middle"]) == 0
+    out = capsys.readouterr().out
+    assert "already posted (left as is): main/youtube" in out
+    config = load_config(project / "config.yaml")
+    assert [p.id for p in load_queue(config)] == ["first", "last"]
+    assert all(p.caption == "line one\n\nline two #Shorts" for p in load_queue(config))
+    assert (project / "queue.yaml").read_text().startswith("# my queue\n")
+
+    assert main(["-c", cfg, "remove", "last"]) == 0
+    assert main(["-c", cfg, "remove", "nope"]) == 1
+    assert [p.id for p in load_queue(load_config(project / "config.yaml"))] == ["first"]

@@ -239,6 +239,31 @@ def append_to_queue(config: Config, entry: dict[str, Any]) -> None:
         path.write_text(text.rstrip("\n") + "\n\n" + block)
 
 
+def remove_from_queue(config: Config, post_id: str) -> bool:
+    """Delete one entry from queue.yaml, leaving every other line (and comment) as it was."""
+    path = config.queue_file
+    if not path.exists():
+        return False
+    text = path.read_text()
+    root = yaml.compose(text)
+    if root is None or not isinstance(root, yaml.SequenceNode):
+        raise ValueError(f"{path} isn't a plain list of posts; remove the entry by hand")
+    items = root.value
+    for i, node in enumerate(items):
+        data = yaml.safe_load(yaml.serialize(node))
+        if isinstance(data, dict) and str(data.get("id")) == post_id:
+            lines = text.splitlines(keepends=True)
+            start = node.start_mark.line
+            end = items[i + 1].start_mark.line if i + 1 < len(items) else len(lines)
+            # Keep comments or blank lines that sit just above the next entry.
+            while end > start + 1 and (not lines[end - 1].strip() or lines[end - 1].lstrip().startswith("#")):
+                end -= 1
+            del lines[start:end]
+            path.write_text("".join(lines))
+            return True
+    return False
+
+
 def x_length(text: str) -> int:
     """Approximate X's character count (links always count as 23)."""
     return len(re.sub(r"https?://\S+", "x" * X_URL_LENGTH, text))
