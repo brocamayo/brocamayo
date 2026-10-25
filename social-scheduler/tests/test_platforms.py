@@ -498,3 +498,33 @@ def test_tiktok_full_inbox_is_left_for_a_later_run(project, config):
     ])
     with pytest.raises(TryLater, match="drafts waiting"):
         TikTokPublisher(config, "main", session=session).publish(post, video)
+
+
+def test_tiktok_inbox_caption_is_pushed_to_the_phone(project, config, caplog, monkeypatch):
+    from socialq.platforms import tiktok as tt
+
+    sent = []
+    monkeypatch.setenv("NTFY_TOPIC", "socialq-secret-topic")
+    monkeypatch.setattr(tt.requests, "post", lambda url, data, timeout, headers: sent.append((url, data, headers))
+                        or FakeResponse(200, {}))
+    save_tiktok_token(project)
+    post, video = one_post(project, config, "[tiktok]", "  tiktok: {mode: inbox}\n")
+    ok = {"error": {"code": "ok"}}
+    session = FakeSession([
+        ("POST", "/inbox/video/init/", FakeResponse(200, {**ok, "data": {"publish_id": "p2", "upload_url": "https://upload.tiktok/x"}})),
+        ("PUT", "upload.tiktok", FakeResponse(201)),
+        ("POST", "status/fetch", FakeResponse(200, {**ok, "data": {"status": "SEND_TO_USER_INBOX"}})),
+    ])
+    caplog.set_level("INFO", logger="socialq")
+    TikTokPublisher(config, "main", session=session).publish(post, video)
+    [(url, data, headers)] = sent
+    assert url == "https://ntfy.sh/socialq-secret-topic"
+    assert data.decode() == "Hello\n\n#money" and b"clip" in headers["Title"]
+    assert "sent to your phone" in caplog.text
+
+
+def test_no_phone_push_without_a_topic(monkeypatch):
+    from socialq.platforms import tiktok as tt
+    monkeypatch.delenv("NTFY_TOPIC", raising=False)
+    monkeypatch.setattr(tt.requests, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no push")))
+    assert tt._push_caption("main", "clip", "hi") is False

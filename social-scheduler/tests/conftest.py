@@ -30,7 +30,7 @@ x: {redirect_uri: "https://example.com/cb"}
 """
     )
     monkeypatch.setattr("time.sleep", lambda s: None)
-    for var in ("NOTIFY_WEBHOOK_URL", "X_CLIENT_SECRET"):
+    for var in ("NOTIFY_WEBHOOK_URL", "X_CLIENT_SECRET", "NTFY_TOPIC"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("X_CLIENT_ID", "x-client")
     return tmp_path

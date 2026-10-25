@@ -197,6 +197,24 @@ def _copy_to_clipboard(text: str) -> bool:
         return False
 
 
+def _push_caption(account: str, post_id: str, caption: str) -> bool:
+    """Send the caption to your phone through ntfy (NTFY_TOPIC in .env), so you can copy it
+    from the notification when you post the draft. Best effort."""
+    topic = os.environ.get("NTFY_TOPIC", "").strip()
+    if not topic:
+        return False
+    server = os.environ.get("NTFY_SERVER", "https://ntfy.sh").rstrip("/")
+    try:
+        resp = requests.post(f"{server}/{topic}", data=caption.encode(), timeout=15, headers={
+            "Title": f"TikTok draft ready ({account}): {post_id}".encode(),
+            "Tags": "memo",
+        })
+        return resp.ok
+    except requests.RequestException as exc:
+        log.warning("tiktok: couldn't send the caption to your phone: %s", exc)
+        return False
+
+
 class TikTokPublisher(Publisher):
     name = "tiktok"
 
@@ -313,5 +331,7 @@ class TikTokPublisher(Publisher):
             log.info("tiktok: sent to your TikTok inbox - open the app to finish posting")
             if caption:
                 copied = _copy_to_clipboard(caption)
-                log.info("tiktok: caption to paste%s:\n%s", " (copied to your clipboard)" if copied else "", caption)
+                pushed = _push_caption(self.account, post.id, caption)
+                where = [w for w, ok in (("copied to your clipboard", copied), ("sent to your phone", pushed)) if ok]
+                log.info("tiktok: caption to paste%s:\n%s", f" ({', '.join(where)})" if where else "", caption)
         return PublishResult(remote_id=publish_id)

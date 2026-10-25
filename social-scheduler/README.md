@@ -180,7 +180,7 @@ Meta only lets apps post to a **Facebook Page**, not a personal profile. Short v
 4. Run `python -m socialq auth tiktok --account main`, open the link, approve access, and paste back the address you land on. Do the same for `--account second` in a private/incognito window. After that, the tool refreshes each login automatically for up to a year.
 
 > ⚠️ **TikTok has two modes** (`tiktok.mode` in config.yaml, can differ per account):
-> - **`inbox` (default).** The video arrives in your TikTok app as a draft notification, and you tap **Post**, which takes about 10 seconds on your phone. This works right away. TikTok doesn't let inbox uploads carry a caption, so the run prints it and, on a Mac, copies it to the clipboard (with Universal Clipboard you can paste it straight into TikTok on your iPhone).
+> - **`inbox` (default).** The video arrives in your TikTok app as a draft notification, and you tap **Post**, which takes about 10 seconds on your phone. This works right away. TikTok doesn't let inbox uploads carry a caption, so the run prints it, copies it to the Mac's clipboard, and (with `NTFY_TOPIC` in `.env`) sends it to your phone as a notification: install the free **ntfy** app, subscribe to that topic, and when a draft arrives, copy the caption from the notification and paste it into TikTok.
 > - **`direct`.** Posts go out fully automatically, but TikTok must [audit your app](https://developers.tiktok.com/doc/content-sharing-guidelines) first. Until the audit passes, direct posts can only be private (`SELF_ONLY`). Switch to `direct` once you're approved.
 
 ### X
