@@ -178,3 +178,65 @@ def test_remove_takes_one_post_out_and_keeps_the_rest(project, capsys):
     assert main(["-c", cfg, "remove", "last"]) == 0
     assert main(["-c", cfg, "remove", "nope"]) == 1
     assert [p.id for p in load_queue(load_config(project / "config.yaml"))] == ["first"]
+
+
+def test_add_copies_outside_videos_and_run_deletes_the_copy_once_posted(project, tmp_path_factory, capsys):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from socialq.cli import main
+    from socialq.config import load_config
+    from socialq.platforms import PublishResult
+    from socialq.queue import load_queue
+    from socialq.scheduler import run_once
+
+    desktop = tmp_path_factory.mktemp("Desktop")
+    (desktop / "short.mp4").write_bytes(b"video-bytes")
+    cfg = str(project / "config.yaml")
+    for pid, platforms in (("yt", ["youtube"]), ("social", ["tiktok"])):
+        assert main(["-c", cfg, "add", str(desktop / "short.mp4"), "--id", pid, "--title", "T",
+                     "--accounts", "main", "--platforms", *platforms, "--at", "2026-10-05 17:00"]) == 0
+    config = load_config(project / "config.yaml")
+    posts = load_queue(config)
+    assert [p.video for p in posts] == ["queued/short.mp4", "queued/short.mp4"]   # one shared copy
+    copy = project / "videos" / "queued" / "short.mp4"
+    assert copy.read_bytes() == b"video-bytes"
+    (desktop / "short.mp4").unlink()   # moving the original no longer matters
+
+    class Ok:
+        def __init__(self, ok):
+            self.ok = ok
+
+        def publish(self, post, video):
+            assert video.read_bytes() == b"video-bytes"
+            if not self.ok:
+                from socialq.platforms import TryLater
+                raise TryLater("slow")
+            return PublishResult("id")
+
+    due = datetime(2026, 10, 5, 17, 5, tzinfo=ZoneInfo("America/Los_Angeles"))
+    run_once(config, now=due, publisher_factory=lambda t, c: Ok(t.platform == "youtube"))
+    assert copy.exists()   # tiktok still waiting on it
+    run_once(config, now=due.replace(hour=18), publisher_factory=lambda t, c: Ok(True))
+    assert not copy.exists()
+
+
+def test_copy_videos_moves_existing_queue_entries_into_the_videos_folder(project, tmp_path_factory):
+    from socialq.cli import main
+    from socialq.config import load_config
+    from socialq.queue import load_queue
+
+    desktop = tmp_path_factory.mktemp("Desk top")
+    (desktop / "a b.mp4").write_bytes(b"aaa")
+    (project / "queue.yaml").write_text(
+        "# keep me\n"
+        f"- id: one\n  video: {desktop / 'a b.mp4'}\n  publish_at: '2026-10-05 17:00'\n  title: One\n\n"
+        f"- id: two\n  video: '{desktop / 'a b.mp4'}'\n  publish_at: '2026-10-05 18:00'\n  title: Two\n\n"
+        f"- id: gone\n  video: {desktop / 'missing.mp4'}\n  publish_at: '2026-10-05 19:00'\n  title: Gone\n")
+    cfg = str(project / "config.yaml")
+    assert main(["-c", cfg, "copy-videos"]) == 0
+    posts = {p.id: p.video for p in load_queue(load_config(project / "config.yaml"))}
+    assert posts["one"] == posts["two"] == "queued/a b.mp4"
+    assert posts["gone"] == str(desktop / "missing.mp4")
+    assert (project / "queue.yaml").read_text().startswith("# keep me\n")
+    assert main(["-c", cfg, "copy-videos"]) == 0   # second run: nothing to do

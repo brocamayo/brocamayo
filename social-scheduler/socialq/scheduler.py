@@ -123,7 +123,22 @@ def run_once(
     if not dry_run:
         notify(outcomes)
         post_comments(config, state, posts, now)
+        clean_up_copies(config, state, posts, now)
     return outcomes
+
+
+def clean_up_copies(config: Config, state: State, posts: list[Post], now: datetime) -> None:
+    """Delete video copies in media_dir/queued/ once every post using them has gone out everywhere."""
+    from .media import delete_finished_copies
+
+    def done(post: Post) -> bool:
+        return all(state.is_published(post.id, t.key) for t in post.targets(config))
+
+    try:
+        for ref in delete_finished_copies(config.media_dir, posts, done, now.timestamp()):
+            log.info("Deleted the copy of %s (posted everywhere)", ref)
+    except OSError as exc:
+        log.warning("Couldn't clean up video copies: %s", exc)
 
 
 def post_comments(config: Config, state: State, posts: list[Post], now: datetime) -> None:

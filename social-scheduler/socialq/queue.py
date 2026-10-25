@@ -239,6 +239,28 @@ def append_to_queue(config: Config, entry: dict[str, Any]) -> None:
         path.write_text(text.rstrip("\n") + "\n\n" + block)
 
 
+def replace_video_paths(config: Config, mapping: dict[str, str]) -> int:
+    """Point `video:` lines at new paths, leaving the rest of queue.yaml untouched."""
+    path = config.queue_file
+    lines = path.read_text().splitlines(keepends=True)
+    changed = 0
+    for i, line in enumerate(lines):
+        m = re.match(r"^(\s*(?:-\s+)?video:\s*)(.+?)\s*$", line)
+        if not m:
+            continue
+        try:
+            value = yaml.safe_load(m.group(2))
+        except yaml.YAMLError:
+            continue
+        if isinstance(value, str) and value in mapping:
+            new = yaml.safe_dump(mapping[value], default_style=None, width=10_000).strip()
+            new = new.removesuffix("\n...").removesuffix("...").strip()
+            lines[i] = f"{m.group(1)}{new}\n"
+            changed += 1
+    path.write_text("".join(lines))
+    return changed
+
+
 def remove_from_queue(config: Config, post_id: str) -> bool:
     """Delete one entry from queue.yaml, leaving every other line (and comment) as it was."""
     path = config.queue_file

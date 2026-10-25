@@ -13,7 +13,9 @@ from pathlib import Path
 from .config import PLATFORMS, load_config
 from .platforms import PublishError
 from .platforms.base import auth_hint, command_name
-from .queue import DATETIME_FORMAT, append_to_queue, load_queue, parse_datetime, remove_from_queue, validate
+from .media import copy_into_media
+from .queue import (DATETIME_FORMAT, append_to_queue, load_queue, parse_datetime, remove_from_queue,
+                    replace_video_paths, validate)
 from .scheduler import run_once
 from .slots import next_free_slot
 from .state import AlreadyRunning, State, run_lock
@@ -70,11 +72,14 @@ def cmd_add(args) -> int:
     else:
         when = next_free_slot(config.slots, [p.publish_at for p in posts],
                               datetime.now(config.timezone), config.timezone)
-    # Store paths relative to media_dir when the video lives there.
+    # Store paths relative to media_dir when the video lives there; otherwise copy it in,
+    # so the background job can read it and moving the original can't break the post.
     try:
         video_ref = str(video.resolve().relative_to(config.media_dir.resolve()))
     except ValueError:
         video_ref = str(video.resolve()) if video.exists() else args.video
+        if video.is_file() and config.copy_videos:
+            video_ref = copy_into_media(config.media_dir, video.resolve())
     entry = {
         "id": args.id or f"{when:%Y%m%d-%H%M}-{Path(args.video).stem}".lower().replace(" ", "-"),
         "video": video_ref,
@@ -231,6 +236,30 @@ def cmd_remove(args) -> int:
     return 0
 
 
+def cmd_copy_videos(args) -> int:
+    """Copy queued videos that live outside media_dir (Desktop, Downloads...) into it."""
+    config = load_config(args.config)
+    state = State(config.state_file)
+    mapping: dict[str, str] = {}
+    for post in load_queue(config):
+        video = post.video_path(config)
+        if str(post.video) in mapping or not Path(str(post.video)).is_absolute():
+            continue
+        if all(state.is_published(post.id, t.key) for t in post.targets(config)):
+            continue
+        if not video.is_file():
+            print(f"  missing, left as is: {video}")
+            continue
+        mapping[str(post.video)] = copy_into_media(config.media_dir, video)
+        print(f"  copied {video.name}")
+    if not mapping:
+        print("Nothing to copy: every waiting video is already in the videos folder.")
+        return 0
+    replace_video_paths(config, mapping)
+    print(f"Copied {len(mapping)} video(s) into {config.media_dir}; the background job can read them now.")
+    return 0
+
+
 def _tiktok_open_id(config, account: str) -> str | None:
     import json
 
@@ -341,6 +370,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("remove", help="take a post out of the queue (what's already posted stays up)")
     p.add_argument("post_id")
     p.set_defaults(func=cmd_remove)
+
+    p = sub.add_parser("copy-videos", help="copy queued videos from Desktop/Downloads into the videos folder")
+    p.set_defaults(func=cmd_copy_videos)
 
     p = sub.add_parser("check", help="validate the queue (files exist, caption limits)")
     p.set_defaults(func=cmd_check)

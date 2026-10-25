@@ -97,3 +97,56 @@ def probe(path: Path) -> VideoInfo | None:
         return VideoInfo(duration, width, height)
     except (struct.error, IndexError):
         return None
+
+
+# --- copies the background job can read ------------------------------------------
+#
+# macOS won't let a background job read Desktop, Documents or Downloads, and a file
+# moved or deleted before its upload breaks the post. So `add` copies videos into
+# media_dir/queued/, and a copy is deleted once everything that uses it has posted.
+
+COPY_DIR = "queued"
+ORPHAN_GRACE_S = 3600
+
+
+def copy_into_media(media_dir: Path, video: Path) -> str:
+    """Copy `video` into media_dir/queued/ (reusing an identical copy); return its path relative to media_dir."""
+    import shutil
+
+    target_dir = Path(media_dir) / COPY_DIR
+    target_dir.mkdir(parents=True, exist_ok=True)
+    size = video.stat().st_size
+    dest = target_dir / video.name
+    n = 2
+    while dest.exists() and dest.stat().st_size != size:
+        dest = target_dir / f"{video.stem}-{n}{video.suffix}"
+        n += 1
+    if not dest.exists():
+        partial = dest.with_name(dest.name + ".partial")
+        shutil.copyfile(video, partial)   # fresh mtime: the orphan check goes by it
+        partial.replace(dest)
+    return str(dest.relative_to(media_dir))
+
+
+def delete_finished_copies(media_dir: Path, posts, is_done, now_ts: float) -> list[str]:
+    """Delete copies whose posts have all gone out (or that no post uses any more)."""
+    folder = Path(media_dir) / COPY_DIR
+    if not folder.is_dir():
+        return []
+    users: dict[str, list] = {}
+    for post in posts:
+        users.setdefault(Path(str(post.video)).as_posix(), []).append(post)
+    deleted = []
+    for f in folder.iterdir():
+        if not f.is_file() or f.name.endswith(".partial"):
+            continue
+        ref = f"{COPY_DIR}/{f.name}"
+        using = users.get(ref)
+        if using is None:
+            if now_ts - f.stat().st_mtime < ORPHAN_GRACE_S:
+                continue
+        elif not all(is_done(p) for p in using):
+            continue
+        f.unlink()
+        deleted.append(ref)
+    return deleted

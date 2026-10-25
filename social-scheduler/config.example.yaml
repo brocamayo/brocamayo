@@ -15,6 +15,8 @@ max_attempts: 3                 # give up on a platform after this many failures
 retry_delay_minutes: 30         # wait this long before retrying a failed upload
 try_later_hours: 48             # a slow connection or full TikTok inbox is retried (without using up
                                 # max_attempts) for this long before it counts as failed
+copy_videos: true               # `add` copies videos into videos/queued/ so the background job can
+                                # read them; deleted once posted everywhere
 
 # ---------------------------------------------------------------------------
 # Your accounts. Rename them to whatever you like (letters/numbers/dashes).
