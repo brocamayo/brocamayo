@@ -428,3 +428,43 @@ def test_bad_instagram_token_says_what_it_starts_with(project, config, monkeypat
     monkeypatch.setattr(ig.requests, "get", lambda url, params, timeout: FakeResponse(400, {"error": "bad"}))
     with pytest.raises(PublishError, match="starts with 'nope'"):
         ig.authorize(config, "main", "nope-token")
+
+
+def test_accounts_doesnt_flag_logins_missing_their_id(project, config, capsys):
+    from socialq.cli import main
+
+    for account in ("main", "second"):
+        path = project / "credentials" / account / "tiktok_token.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"access_token": "a", "refresh_token": "r", "open_id": None,
+                                    "expires_at": 0, "refresh_expires_at": 0}))
+    main(["-c", str(project / "config.yaml"), "accounts"])
+    assert "same TikTok account" not in capsys.readouterr().out
+
+
+def test_tiktok_refresh_keeps_identity_and_refills_it_when_lost(project, config, monkeypatch):
+    from socialq.platforms import tiktok as tt
+
+    monkeypatch.setenv("TIKTOK_CLIENT_KEY", "k")
+    monkeypatch.setenv("TIKTOK_CLIENT_SECRET", "s")
+    path = project / "credentials" / "main" / "tiktok_token.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(tt.requests, "post", lambda *a, **k: FakeResponse(200, {
+        "access_token": "new", "refresh_token": "r2", "expires_in": 86400}))
+
+    # Identity saved at login survives a refresh reply that leaves it out.
+    path.write_text(json.dumps({"access_token": "old", "refresh_token": "r", "open_id": "broc-id",
+                                "display_name": "Broc", "expires_at": 0, "refresh_expires_at": time.time() + 999}))
+    monkeypatch.setattr(tt.requests, "get", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no lookup")))
+    assert tt.access_token(config, "main") == "new"
+    saved = json.loads(path.read_text())
+    assert (saved["open_id"], saved["display_name"]) == ("broc-id", "Broc")
+
+    # A login an older version already stripped gets looked up again.
+    path.write_text(json.dumps({"access_token": "old", "refresh_token": "r", "open_id": None,
+                                "expires_at": 0, "refresh_expires_at": time.time() + 999}))
+    monkeypatch.setattr(tt.requests, "get", lambda *a, **k: FakeResponse(200, {
+        "data": {"user": {"open_id": "broc-id", "display_name": "Broc"}}}))
+    tt.access_token(config, "main")
+    saved = json.loads(path.read_text())
+    assert (saved["open_id"], saved["display_name"]) == ("broc-id", "Broc")

@@ -264,8 +264,8 @@ def cmd_accounts(args) -> int:
                     info = f" to channel: {title}" if title else " (channel unknown - log in again to see it)"
                 if platform == "tiktok":
                     info = f" as {saved['display_name']}" if saved.get("display_name") else ""
-                    same = [a for a in config.accounts if a != account.name and _tiktok_open_id(config, a)
-                            == saved.get("open_id")]
+                    same = [a for a in config.accounts if a != account.name and saved.get("open_id")
+                            and _tiktok_open_id(config, a) == saved.get("open_id")]
                     if same:
                         info += f"  ⚠️ same TikTok account as '{same[0]}'"
                 if platform == "facebook" and saved.get("page_name"):

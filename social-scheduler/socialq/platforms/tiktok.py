@@ -77,16 +77,20 @@ def _token_file(config, account: str) -> Path:
     return config.path(config.settings(account, "tiktok")["token_file"])
 
 
-def _save_token(config, account: str, data: dict) -> dict:
+def _save_token(config, account: str, data: dict, previous: dict | None = None) -> dict:
     now = int(time.time())
+    previous = previous or {}
     token = {
         "access_token": data["access_token"],
         "refresh_token": data["refresh_token"],
-        "open_id": data.get("open_id"),
-        "scope": data.get("scope"),
+        # A refresh reply may leave these out; keep what the login saved.
+        "open_id": data.get("open_id") or previous.get("open_id"),
+        "scope": data.get("scope") or previous.get("scope"),
         "expires_at": now + int(data.get("expires_in", 86400)),
         "refresh_expires_at": now + int(data.get("refresh_expires_in", 365 * 86400)),
     }
+    if previous.get("display_name"):
+        token["display_name"] = previous["display_name"]
     path = _token_file(config, account)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(token, indent=2))
@@ -115,7 +119,16 @@ def access_token(config, account: str) -> str:
     log.info("tiktok (%s): refreshing access token", account)
     data = _token_request({"client_key": key, "client_secret": secret,
                            "grant_type": "refresh_token", "refresh_token": token["refresh_token"]})
-    return _save_token(config, account, data)["access_token"]
+    fresh = _save_token(config, account, data, previous=token)
+    if not fresh.get("open_id") or not fresh.get("display_name"):
+        # Logins refreshed by older versions lost these; look them up again.
+        user = _user_info(fresh["access_token"])
+        if user.get("open_id") or user.get("display_name"):
+            fresh["open_id"] = fresh.get("open_id") or user.get("open_id")
+            if user.get("display_name"):
+                fresh["display_name"] = user["display_name"]
+            path.write_text(json.dumps(fresh, indent=2))
+    return fresh["access_token"]
 
 
 def authorize(config, account: str) -> None:
@@ -151,19 +164,23 @@ def authorize(config, account: str) -> None:
     for other in config.accounts:
         if other == account or not _token_file(config, other).exists():
             continue
-        if json.loads(_token_file(config, other).read_text()).get("open_id") == token["open_id"]:
+        if token.get("open_id") and json.loads(_token_file(config, other).read_text()).get("open_id") == token["open_id"]:
             print(f"\n⚠️  That's the same TikTok account '{other}' is logged in to. Run this again in a")
             print("   private window and log in to the other TikTok account.")
 
 
-def _display_name(access_token: str) -> str | None:
-    """The TikTok display name for a login (best effort; only shown to the user)."""
+def _user_info(access_token: str) -> dict:
+    """{open_id, display_name} for a login (best effort; only shown to the user)."""
     try:
         resp = requests.get(f"{API}/user/info/", params={"fields": "open_id,display_name"}, timeout=30,
                             headers={"Authorization": f"Bearer {access_token}"})
-        return resp.json().get("data", {}).get("user", {}).get("display_name") or None
-    except (requests.RequestException, ValueError):
-        return None
+        return resp.json().get("data", {}).get("user", {}) or {}
+    except (requests.RequestException, ValueError, AttributeError):
+        return {}
+
+
+def _display_name(access_token: str) -> str | None:
+    return _user_info(access_token).get("display_name") or None
 
 
 # --- publishing ---------------------------------------------------------------
