@@ -16,7 +16,7 @@ A scheduled job runs `python -m socialq run` every few minutes. It uploads whate
 - **One queue, five platforms, several accounts.** You write one caption. Tags become YouTube tags and are added as `#hashtags` everywhere else. You can override the text per platform and per account.
 - **Staggered accounts.** Give an account a `delay_minutes` and it posts that long after the others, so two accounts don't publish identical videos at the same moment.
 - **Posting slots.** You set your posting times once (`mon,wed,fri 17:00`), and `add` puts each new video in the next open slot.
-- **Safe to re-run.** State lives in `state.json`. If one account or platform fails, the rest still post. A failed upload is retried later (after 30 min, up to 3 attempts by default). A platform you haven't logged in to yet just waits, without using up retries.
+- **Safe to re-run.** State lives in `state.json`. If one account or platform fails, the rest still post. A failed upload is retried later (after 30 min, up to 3 attempts by default). A platform you haven't logged in to yet just waits, without using up retries. So does a passing problem, like a connection too slow for TikTok's upload or a full TikTok inbox: the background job tries again every 30 minutes until it goes through (for up to 48 hours).
 - **Checks before uploading.** `check` catches a missing file, a title over 100 characters, an X post over 280 characters and similar problems before a scheduled post fails.
 - **Optional alerts.** It can send a summary of each run to Slack, Discord or Teams.
 

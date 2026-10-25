@@ -12,7 +12,7 @@ from typing import Callable
 import requests
 
 from .config import Config
-from .platforms import NotLoggedIn, PublishError, Publisher, get_publisher
+from .platforms import NotLoggedIn, PublishError, Publisher, TryLater, get_publisher
 from .queue import Post, Target, load_queue, validate_target
 from .state import State
 
@@ -92,6 +92,18 @@ def run_once(
         except NotLoggedIn as exc:
             state.record_waiting(post.id, target.key, str(exc), at=now)
             log.warning("%s waiting: %s", label, exc)
+            outcomes.append(Outcome(post.id, target, False, str(exc)))
+            continue
+        except TryLater as exc:
+            since = state.get(post.id, target.key).get("try_later_since") or now.isoformat()
+            if datetime.fromisoformat(since) + timedelta(hours=config.try_later_hours) <= now:
+                msg = f"{exc} (kept failing for {config.try_later_hours}h)"
+                state.record_failure(post.id, target.key, msg, at=now)
+                log.error("%s failed: %s", label, msg)
+            else:
+                state.record_waiting(post.id, target.key, str(exc), at=now)
+                state.update(post.id, target.key, try_later_since=since)
+                log.warning("%s will try again in %d min: %s", label, config.retry_delay_minutes, exc)
             outcomes.append(Outcome(post.id, target, False, str(exc)))
             continue
         except PublishError as exc:

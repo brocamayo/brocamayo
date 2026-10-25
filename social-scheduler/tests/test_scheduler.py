@@ -162,3 +162,33 @@ def test_not_logged_in_waits_without_using_up_attempts(config, project):
     stubs["main/x"].logged_in = True
     outcomes = run_once(config, now=now, publisher_factory=stubs)
     assert ("main/x", True) in [(o.target.key, o.ok) for o in outcomes]
+
+
+def test_try_later_waits_without_using_retries_then_gives_up(config, project):
+    from socialq.platforms import TryLater
+
+    make_queue(project, '- {id: slow, video: a.mp4, publish_at: "2026-10-05 17:00", title: S, accounts: [main], platforms: [tiktok]}\n')
+
+    class Slow:
+        calls = 0
+
+        def publish(self, post, video):
+            Slow.calls += 1
+            raise TryLater("upload too slow")
+
+    def factory(target, config):
+        return Slow() if target.key == "main/tiktok" else StubPublisher(target.key)
+
+    t = DUE
+    for _ in range(5):  # far more runs than max_attempts (2 in this config)
+        run_once(config, now=t, publisher_factory=factory)
+        entry = State(config.state_file).get("slow", "main/tiktok")
+        assert entry["status"] == "waiting" and entry.get("attempts", 0) == 0
+        t += timedelta(minutes=config.retry_delay_minutes)
+    calls = Slow.calls
+    run_once(config, now=t - timedelta(minutes=1), publisher_factory=factory)
+    assert Slow.calls == calls  # still respects the retry delay
+
+    run_once(config, now=DUE + timedelta(hours=config.try_later_hours), publisher_factory=factory)
+    entry = State(config.state_file).get("slow", "main/tiktok")
+    assert entry["status"] == "failed" and "kept failing" in entry["last_error"]

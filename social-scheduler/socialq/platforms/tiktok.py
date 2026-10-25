@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import requests
 
 from ..queue import Post
-from .base import NotLoggedIn, PublishError, PublishResult, Publisher, auth_hint, error_text, log, poll
+from .base import NotLoggedIn, PublishError, PublishResult, Publisher, TryLater, auth_hint, error_text, log, poll
 
 API = "https://open.tiktokapis.com/v2"
 AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/"
@@ -33,6 +33,7 @@ def scopes_for(mode: str) -> str:
     return SCOPES.get(mode, SCOPES["inbox"])
 
 MB = 1024 * 1024
+SLOW_CHUNK_S = 45          # TikTok drops a chunk request that runs past about a minute
 MIN_CHUNK = 5 * MB
 MAX_CHUNK = 64 * MB
 DEFAULT_CHUNK = 5 * MB
@@ -207,7 +208,11 @@ class TikTokPublisher(Publisher):
         payload = resp.json() if resp.content else {}
         err = payload.get("error", {})
         if not resp.ok or err.get("code", "ok") != "ok":
-            raise PublishError(f"tiktok: {path} failed: {err.get('code')} {err.get('message') or error_text(resp)}")
+            problem = f"tiktok: {path} failed: {err.get('code')} {err.get('message') or error_text(resp)}"
+            if err.get("code") in ("spam_risk_too_many_pending_share", "rate_limit_exceeded"):
+                # Too many drafts waiting in the inbox, or too many calls: clears up on its own.
+                raise TryLater(problem + " (post or delete the drafts waiting in your TikTok inbox)")
+            raise PublishError(problem)
         return payload.get("data", {})
 
     def _put_chunk(self, url: str, data: bytes, start: int, end: int, size: int, i: int, count: int) -> None:
@@ -227,9 +232,16 @@ class TikTokPublisher(Publisher):
                 if resp.status_code in (200, 201, 206):
                     log.info("tiktok: chunk %d/%d done in %ds", i, count, time.monotonic() - began)
                     return
+                took = time.monotonic() - began
                 logid = resp.headers.get("x-tt-logid")
-                problem = (f"HTTP {resp.status_code} {error_text(resp)} after {int(time.monotonic() - began)}s"
+                problem = (f"HTTP {resp.status_code} {error_text(resp)} after {int(took)}s"
                            + (f" (logid {logid})" if logid else ""))
+                if resp.status_code == 403 and took >= SLOW_CHUNK_S:
+                    # TikTok timed the chunk out: the connection is too slow right now. Re-sending it
+                    # straight away would only time out again, so leave it for a later run.
+                    mbps = len(data) * 8 / took / 1e6
+                    raise TryLater(f"tiktok: upload too slow right now ({len(data) / MB:.0f} MB took "
+                                   f"{int(took)}s, about {mbps:.1f} Mbps); trying again later")
             if attempt == CHUNK_ATTEMPTS:
                 raise PublishError(f"tiktok: chunk {i}/{count} upload failed: {problem}")
             log.warning("tiktok: chunk %d/%d failed (%s), retrying", i, count, problem)

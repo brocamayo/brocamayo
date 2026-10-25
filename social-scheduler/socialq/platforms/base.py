@@ -26,6 +26,11 @@ class NotLoggedIn(PublishError):
     """No (or expired) login for this account; waits without using up retries."""
 
 
+class TryLater(PublishError):
+    """A passing problem (slow connection, a daily limit): retried on a later run without
+    using up retries, until it has gone on for `config.try_later_hours`."""
+
+
 @dataclass
 class PublishResult:
     remote_id: str

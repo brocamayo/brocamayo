@@ -468,3 +468,33 @@ def test_tiktok_refresh_keeps_identity_and_refills_it_when_lost(project, config,
     tt.access_token(config, "main")
     saved = json.loads(path.read_text())
     assert (saved["open_id"], saved["display_name"]) == ("broc-id", "Broc")
+
+
+def test_tiktok_slow_chunk_is_left_for_a_later_run(project, config, monkeypatch):
+    from socialq.platforms import TryLater
+    from socialq.platforms import tiktok as tt
+
+    save_tiktok_token(project)
+    post, video = one_post(project, config, "[tiktok]", "  tiktok: {mode: inbox}\n")
+    clock = iter([0.0, 80.0])
+    monkeypatch.setattr(tt.time, "monotonic", lambda: next(clock))
+    ok = {"error": {"code": "ok"}}
+    session = FakeSession([
+        ("POST", "/inbox/video/init/", FakeResponse(200, {**ok, "data": {"publish_id": "p1", "upload_url": "https://upload.tiktok/abc"}})),
+        ("PUT", "upload.tiktok", FakeResponse(403, {"code": 50001, "message": "missing or invalid request id"})),
+    ])
+    with pytest.raises(TryLater, match="too slow"):
+        TikTokPublisher(config, "main", session=session).publish(post, video)
+    assert sum(c[0] == "PUT" for c in session.calls) == 1   # no pointless immediate re-sends
+
+
+def test_tiktok_full_inbox_is_left_for_a_later_run(project, config):
+    from socialq.platforms import TryLater
+
+    save_tiktok_token(project)
+    post, video = one_post(project, config, "[tiktok]", "  tiktok: {mode: inbox}\n")
+    session = FakeSession([
+        ("POST", "/inbox/video/init/", FakeResponse(403, {"error": {"code": "spam_risk_too_many_pending_share", "message": "too many"}})),
+    ])
+    with pytest.raises(TryLater, match="drafts waiting"):
+        TikTokPublisher(config, "main", session=session).publish(post, video)
