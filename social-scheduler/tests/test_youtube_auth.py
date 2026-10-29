@@ -347,3 +347,65 @@ def test_add_command_stores_comment_and_playlist(project):
           "--playlist", "Shorts", "--comment", "Pin me", "--at", "2026-10-01 09:00", "--accounts", "main"])
     [post] = load_queue(load_config(project / "config.yaml"))
     assert post.option("youtube", "playlist") == "Shorts" and post.option("youtube", "comment") == "Pin me"
+
+
+class CaptionsYouTube:
+    def __init__(self, fail=False):
+        self.fail, self.inserted = fail, []
+
+    def captions(self):
+        return self
+
+    def insert(self, part, body, media_body):
+        if self.fail:
+            from googleapiclient.errors import HttpError
+
+            raise HttpError(type("R", (), {"status": 403, "reason": "forbidden"})(), b"{}")
+        self.inserted.append((body["snippet"], media_body._filename))
+        return _Exec({"id": "cap1"})
+
+
+def test_captions_are_added_and_a_failure_only_warns(project, config, caplog):
+    (project / "videos" / "v.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nHi\n")
+    (project / "videos" / "v.mp4").write_bytes(b"x")
+    (project / "queue.yaml").write_text("- {id: v, video: v.mp4, publish_at: '2026-10-01 09:00', title: T, "
+                                        "youtube: {captions: v.srt}}\n")
+    from socialq.queue import load_queue
+
+    [post] = load_queue(config)
+    service = CaptionsYouTube()
+    make_publisher(config, yt.SCOPES)._upload_captions(service, "vid1", post.captions_path(config), post)
+    [(snippet, filename)] = service.inserted
+    assert snippet == {"videoId": "vid1", "language": "en", "name": "", "isDraft": False}
+    assert filename.endswith("v.srt")
+
+    make_publisher(config, yt.SCOPES)._upload_captions(CaptionsYouTube(fail=True), "vid1",
+                                                        post.captions_path(config), post)
+    assert "captions failed (add v.srt in Studio)" in caplog.text
+
+
+def test_add_copies_captions_and_thumbnail_and_keeps_them_until_posted(project, tmp_path_factory):
+    from socialq.cli import main
+    from socialq.config import load_config
+    from socialq.media import delete_finished_copies
+    from socialq.queue import load_queue, validate
+
+    downloads = tmp_path_factory.mktemp("Downloads")
+    for name, data in (("ep.mp4", b"video"), ("ep.srt", b"1\n"), ("ep.jpg", b"jpg")):
+        (downloads / name).write_bytes(data)
+    cfg = str(project / "config.yaml")
+    assert main(["-c", cfg, "add", str(downloads / "ep.mp4"), "--title", "T", "--accounts", "main",
+                 "--platforms", "youtube", "--captions", str(downloads / "ep.srt"),
+                 "--thumbnail", str(downloads / "ep.jpg"), "--at", "2026-10-01 09:00"]) == 0
+    config = load_config(project / "config.yaml")
+    [post] = load_queue(config)
+    assert (post.video, post.thumbnail, post.option("youtube", "captions")) == (
+        "queued/ep.mp4", "queued/ep.jpg", "queued/ep.srt")
+    assert validate(post, config) == []
+    # Long after `add`, the copies are still in use by the waiting post, so none are deleted.
+    assert delete_finished_copies(config.media_dir, [post], lambda p: False, now_ts=1e12) == []
+    assert sorted(delete_finished_copies(config.media_dir, [post], lambda p: True, now_ts=1e12)) == [
+        "queued/ep.jpg", "queued/ep.mp4", "queued/ep.srt"]
+
+    assert main(["-c", cfg, "add", str(downloads / "ep.mp4"), "--id", "x", "--title", "T",
+                 "--captions", str(downloads / "missing.srt")]) == 1

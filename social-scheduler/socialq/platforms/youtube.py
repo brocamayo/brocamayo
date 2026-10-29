@@ -348,6 +348,26 @@ class YouTubePublisher(Publisher):
                     youtube.thumbnails().set(videoId=video_id, media_body=MediaFileUpload(str(thumb))).execute()
                 except HttpError as exc:  # thumbnails need a verified channel; don't fail the post
                     log.warning("youtube: video uploaded but thumbnail failed: %s", exc)
+
+            captions = post.captions_path(self.config)
+            if captions:
+                self._upload_captions(youtube, video_id, captions, post)
         except HttpError as exc:
             raise PublishError(f"youtube: {exc}") from exc
         return PublishResult(remote_id=video_id, url=f"https://youtu.be/{video_id}")
+
+    def _upload_captions(self, youtube, video_id: str, path: Path, post: Post) -> None:
+        """Add the .srt/.vtt as a subtitle track. A failure here never fails the upload."""
+        from googleapiclient.errors import HttpError
+        from googleapiclient.http import MediaFileUpload
+
+        language = str(post.option("youtube", "captions_language", self.settings.get("captions_language", "en")))
+        try:
+            youtube.captions().insert(
+                part="snippet",
+                body={"snippet": {"videoId": video_id, "language": language, "name": "", "isDraft": False}},
+                media_body=MediaFileUpload(str(path), mimetype="application/octet-stream"),
+            ).execute()
+            log.info("youtube: captions added (%s)", language)
+        except HttpError as exc:
+            log.warning("youtube: video uploaded but captions failed (add %s in Studio): %s", path.name, exc)

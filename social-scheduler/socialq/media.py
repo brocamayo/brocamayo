@@ -135,7 +135,8 @@ def delete_finished_copies(media_dir: Path, posts, is_done, now_ts: float) -> li
         return []
     users: dict[str, list] = {}
     for post in posts:
-        users.setdefault(Path(str(post.video)).as_posix(), []).append(post)
+        for ref in post.files():
+            users.setdefault(Path(ref).as_posix(), []).append(post)
     deleted = []
     for f in folder.iterdir():
         if not f.is_file() or f.name.endswith(".partial"):

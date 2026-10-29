@@ -101,6 +101,18 @@ def cmd_add(args) -> int:
         entry.setdefault("youtube", {})["playlist"] = args.playlist
     if args.comment:
         entry.setdefault("youtube", {})["comment"] = args.comment
+    for flag, ref in (("captions", args.captions), ("thumbnail", args.thumbnail)):
+        if not ref:
+            continue
+        path = Path(ref).expanduser()
+        if not path.is_file():
+            print(f"{flag} file not found: {path}", file=sys.stderr)
+            return 1
+        stored = copy_into_media(config.media_dir, path.resolve()) if config.copy_videos else str(path.resolve())
+        if flag == "captions":
+            entry.setdefault("youtube", {})["captions"] = stored
+        else:
+            entry["thumbnail"] = stored
     for platform, text in (("instagram", args.ig_caption), ("facebook", args.fb_caption),
                            ("tiktok", args.tiktok_caption)):
         if text is not None:
@@ -354,6 +366,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tags", help="comma separated, e.g. investing,stocks")
     p.add_argument("--playlist", help="youtube: add the upload to this playlist (its name or ID)")
     p.add_argument("--comment", help="youtube: post this comment once the video is public (pin it yourself)")
+    p.add_argument("--captions", help="youtube: subtitles file (.srt or .vtt) to add to the upload")
+    p.add_argument("--thumbnail", help="youtube: custom thumbnail image (needs a phone-verified channel)")
     p.add_argument("--ig-caption", help="instagram: use this caption instead of --caption")
     p.add_argument("--fb-caption", help="facebook: use this caption instead of --caption")
     p.add_argument("--tiktok-caption", help="tiktok: use this caption instead of --caption")

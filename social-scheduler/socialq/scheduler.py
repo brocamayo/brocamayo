@@ -51,6 +51,9 @@ def preflight(post: Post, target: Target, config: Config) -> list[str]:
     thumb = post.for_account(target.account).thumbnail_path(config)
     if target.platform == "youtube" and thumb and not thumb.exists():
         problems.append(f"thumbnail not found: {thumb}")
+    captions = post.captions_path(config)
+    if target.platform == "youtube" and captions and not captions.exists():
+        problems.append(f"captions file not found: {captions}")
     return problems + validate_target(post, target, config)
 
 

@@ -113,6 +113,20 @@ class Post:
         p = Path(self.thumbnail).expanduser()
         return p if p.is_absolute() else config.media_dir / p
 
+    def captions_path(self, config: Config) -> Path | None:
+        """YouTube subtitles file (.srt/.vtt) from `youtube: {captions: ...}`."""
+        value = self.option("youtube", "captions")
+        if not value:
+            return None
+        p = Path(str(value)).expanduser()
+        return p if p.is_absolute() else config.media_dir / p
+
+    def files(self) -> list[str]:
+        """Every file reference this post uses (video, thumbnail, captions), as written in the queue."""
+        refs = [self.video, self.thumbnail, self.option("youtube", "captions")]
+        refs += [v.get("thumbnail") for v in self.per_account.values()]
+        return [str(r) for r in refs if r]
+
     def option(self, platform: str, key: str, default: Any = None) -> Any:
         return self.overrides.get(platform, {}).get(key, default)
 
@@ -345,6 +359,9 @@ def validate(post: Post, config: Config) -> list[str]:
         thumb = post.for_account(account).thumbnail_path(config)
         if thumb and not thumb.exists():
             problems.append(f"thumbnail not found: {thumb}")
+    captions = post.captions_path(config)
+    if captions and any(t.platform == "youtube" for t in targets) and not captions.exists():
+        problems.append(f"captions file not found: {captions}")
     for target in targets:
         problems.extend(validate_target(post, target, config))
     return list(dict.fromkeys(problems))
