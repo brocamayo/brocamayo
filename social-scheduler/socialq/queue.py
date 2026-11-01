@@ -275,6 +275,28 @@ def replace_video_paths(config: Config, mapping: dict[str, str]) -> int:
     return changed
 
 
+def set_publish_times(config: Config, times: dict[str, str]) -> int:
+    """Change `publish_at` for the given post ids, leaving every other line of queue.yaml as it was."""
+    path = config.queue_file
+    text = path.read_text()
+    root = yaml.compose(text)
+    if root is None or not isinstance(root, yaml.SequenceNode):
+        raise ValueError(f"{path} isn't a plain list of posts; change the times by hand")
+    edits = []
+    for node in root.value:
+        if not isinstance(node, yaml.MappingNode):
+            continue
+        fields = {k.value: v for k, v in node.value}
+        post_id = fields.get("id")
+        if post_id is not None and post_id.value in times and "publish_at" in fields:
+            value = fields["publish_at"]
+            edits.append((value.start_mark.index, value.end_mark.index, f"'{times[post_id.value]}'"))
+    for start, end, new in sorted(edits, reverse=True):
+        text = text[:start] + new + text[end:]
+    path.write_text(text)
+    return len(edits)
+
+
 def remove_from_queue(config: Config, post_id: str) -> bool:
     """Delete one entry from queue.yaml, leaving every other line (and comment) as it was."""
     path = config.queue_file

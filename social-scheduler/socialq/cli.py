@@ -7,7 +7,7 @@ import logging
 import shutil
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .config import PLATFORMS, load_config
@@ -15,7 +15,7 @@ from .platforms import PublishError
 from .platforms.base import auth_hint, command_name
 from .media import copy_into_media
 from .queue import (DATETIME_FORMAT, append_to_queue, load_queue, parse_datetime, remove_from_queue,
-                    replace_video_paths, validate)
+                    replace_video_paths, set_publish_times, validate)
 from .scheduler import run_once
 from .slots import next_free_slot
 from .state import AlreadyRunning, State, run_lock
@@ -233,6 +233,39 @@ def cmd_retry(args) -> int:
     return 0
 
 
+def spread_slots(start: datetime, per_day: list[str], count: int) -> list[datetime]:
+    """The next `count` times from `start` on, using the daily times in `per_day` ("09:00")."""
+    clock = sorted(datetime.strptime(t, "%H:%M").time() for t in per_day)
+    slots, day = [], start.date()
+    while len(slots) < count:
+        for t in clock:
+            when = datetime.combine(day, t, tzinfo=start.tzinfo)
+            if when > start and len(slots) < count:
+                slots.append(when)
+        day += timedelta(days=1)
+    return slots
+
+
+def cmd_spread(args) -> int:
+    """Give each post still waiting on these platforms its own slot, a few per day, oldest first."""
+    config = load_config(args.config)
+    state = State(config.state_file)
+    waiting = [p for p in load_queue(config)
+               if any(t.platform in args.platforms and not state.is_published(p.id, t.key)
+                      for t in p.targets(config))]
+    if not waiting:
+        print(f"Nothing waiting on {', '.join(args.platforms)}.")
+        return 0
+    start = parse_datetime(args.start, config.timezone) if args.start else datetime.now(config.timezone)
+    slots = spread_slots(start, args.times, len(waiting))
+    set_publish_times(config, {p.id: when.strftime(DATETIME_FORMAT) for p, when in zip(waiting, slots)})
+    for post, when in zip(waiting, slots):
+        print(f"  {when:%a %b %d %H:%M}  {post.id}")
+    print(f"Spread {len(waiting)} post(s) over {len({s.date() for s in slots})} day(s). "
+          "Accounts with a delay_minutes post that much later.")
+    return 0
+
+
 def cmd_remove(args) -> int:
     config = load_config(args.config)
     state = State(config.state_file)
@@ -380,6 +413,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("list", help="show upcoming posts and their status")
     p.add_argument("-a", "--all", action="store_true", help="include fully published posts")
     p.set_defaults(func=cmd_list)
+
+    p = sub.add_parser("spread", help="space out posts still waiting on some platforms, a few per day")
+    p.add_argument("platforms", nargs="+", choices=PLATFORMS)
+    p.add_argument("--times", nargs="+", default=["09:00", "13:00", "18:00"],
+                   help="times of day to post (default: 09:00 13:00 18:00)")
+    p.add_argument("--start", help="'YYYY-MM-DD HH:MM' to start after (default: now)")
+    p.set_defaults(func=cmd_spread)
 
     p = sub.add_parser("remove", help="take a post out of the queue (what's already posted stays up)")
     p.add_argument("post_id")

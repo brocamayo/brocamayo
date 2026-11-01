@@ -240,3 +240,31 @@ def test_copy_videos_moves_existing_queue_entries_into_the_videos_folder(project
     assert posts["gone"] == str(desktop / "missing.mp4")
     assert (project / "queue.yaml").read_text().startswith("# keep me\n")
     assert main(["-c", cfg, "copy-videos"]) == 0   # second run: nothing to do
+
+
+def test_spread_gives_waiting_posts_their_own_slots(project, capsys):
+    from socialq.cli import main
+    from socialq.config import load_config
+    from socialq.queue import load_queue
+    from socialq.state import State
+
+    (project / "videos" / "v.mp4").write_bytes(b"x")
+    (project / "queue.yaml").write_text(
+        "# my queue\n"
+        "- id: a\n  video: v.mp4\n  publish_at: 2026-10-01 09:00\n  accounts: [main]\n  platforms: [tiktok, instagram]\n  caption: \"x: y\"\n\n"
+        "- id: done\n  video: v.mp4\n  publish_at: '2026-10-01 09:00'\n  accounts: [main]\n  platforms: [instagram]\n\n"
+        "- {id: b, video: v.mp4, publish_at: '2026-10-02 09:00', accounts: [main], platforms: [instagram]}\n"
+        "- id: yt\n  video: v.mp4\n  publish_at: 2026-10-01 09:00\n  accounts: [main]\n  platforms: [youtube]\n")
+    config = load_config(project / "config.yaml")
+    State(config.state_file).record_success("done", "main/instagram", "m1", None)
+
+    cfg = str(project / "config.yaml")
+    assert main(["-c", cfg, "spread", "instagram", "facebook", "--times", "18:00", "09:00",
+                 "--start", "2026-11-01 12:00"]) == 0
+    posts = {p.id: p for p in load_queue(load_config(project / "config.yaml"))}
+    fmt = lambda p: p.publish_at.strftime("%Y-%m-%d %H:%M")
+    assert fmt(posts["a"]) == "2026-11-01 18:00" and fmt(posts["b"]) == "2026-11-02 09:00"
+    assert fmt(posts["done"]) == "2026-10-01 09:00" and fmt(posts["yt"]) == "2026-10-01 09:00"
+    assert posts["a"].caption == "x: y"
+    text = (project / "queue.yaml").read_text()
+    assert text.startswith("# my queue\n") and "Spread 2 post(s) over 2 day(s)" in capsys.readouterr().out

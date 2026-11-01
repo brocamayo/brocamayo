@@ -85,6 +85,7 @@ The **developer app** for each platform (the keys in `.env` and the YouTube clie
 | `run [--dry-run]` | Publish everything that's due, then exit. This is what the scheduled job runs |
 | `watch [--every 5]` | Keep running and check every N minutes, instead of using cron |
 | `retry POST_ID [where]` | Clear a status so it's attempted again. `where` can be `youtube`, `second`, or `second/youtube`. `retry failed [where]` does every failed upload |
+| `spread PLATFORM... [--times 09:00 13:00 18:00] [--start ...]` | Give each post still waiting on those platforms its own time slot, a few per day (e.g. a backlog of Reels before connecting Instagram) |
 | `remove POST_ID` | Take a post out of the queue, e.g. when you re-cut the video. What's already posted stays up |
 | `copy-videos` | Copy waiting videos that live on the Desktop, in Downloads, etc. into the videos folder (`add` does this itself now) |
 
