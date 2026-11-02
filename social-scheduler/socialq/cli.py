@@ -101,6 +101,9 @@ def cmd_add(args) -> int:
         entry.setdefault("youtube", {})["playlist"] = args.playlist
     if args.comment:
         entry.setdefault("youtube", {})["comment"] = args.comment
+    for lang, title, description in args.translation or []:
+        entry.setdefault("youtube", {}).setdefault("translations", {})[lang] = {
+            "title": title, "description": description}
     for flag, ref in (("captions", args.captions), ("thumbnail", args.thumbnail)):
         if not ref:
             continue
@@ -399,6 +402,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tags", help="comma separated, e.g. investing,stocks")
     p.add_argument("--playlist", help="youtube: add the upload to this playlist (its name or ID)")
     p.add_argument("--comment", help="youtube: post this comment once the video is public (pin it yourself)")
+    p.add_argument("--translation", nargs=3, action="append", metavar=("LANG", "TITLE", "DESCRIPTION"),
+                   help="youtube: title and description for viewers in another language, e.g. es 'Título' 'Descripción'")
     p.add_argument("--captions", help="youtube: subtitles file (.srt or .vtt) to add to the upload")
     p.add_argument("--thumbnail", help="youtube: custom thumbnail image (needs a phone-verified channel)")
     p.add_argument("--ig-caption", help="instagram: use this caption instead of --caption")

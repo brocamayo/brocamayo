@@ -288,17 +288,9 @@ class YouTubePublisher(Publisher):
             log.warning("youtube (%s): video posted, but adding it to playlist '%s' failed: %s",
                         self.account, playlist, exc)
 
-    def publish(self, post: Post, video: Path) -> PublishResult:
-        from googleapiclient.discovery import build
-        from googleapiclient.errors import HttpError
-        from googleapiclient.http import MediaFileUpload
-
+    def video_body(self, post: Post) -> dict:
+        """videos.insert body: snippet and status, plus localizations when the post has translations."""
         s = self.settings
-        channel = saved_channel(self.config, self.account).get("title")
-        if channel:
-            log.info("youtube (%s): uploading to channel %s", self.account, channel)
-        self._creds = _credentials(self.config, self.account)
-        youtube = build("youtube", "v3", http=_upload_http(self._creds), cache_discovery=False)
         body = {
             "snippet": {
                 "title": post.youtube_title(),
@@ -311,9 +303,28 @@ class YouTubePublisher(Publisher):
                 "selfDeclaredMadeForKids": bool(s.get("made_for_kids", False)),
             },
         }
+        translations = post.youtube_translations()
+        if translations:
+            # Viewers whose YouTube is set to one of these languages see that title and description.
+            body["snippet"]["defaultLanguage"] = str(post.option("youtube", "language", s.get("language", "en")))
+            body["localizations"] = translations
+        return body
+
+    def publish(self, post: Post, video: Path) -> PublishResult:
+        from googleapiclient.discovery import build
+        from googleapiclient.errors import HttpError
+        from googleapiclient.http import MediaFileUpload
+
+        s = self.settings
+        channel = saved_channel(self.config, self.account).get("title")
+        if channel:
+            log.info("youtube (%s): uploading to channel %s", self.account, channel)
+        self._creds = _credentials(self.config, self.account)
+        youtube = build("youtube", "v3", http=_upload_http(self._creds), cache_discovery=False)
+        body = self.video_body(post)
         media = MediaFileUpload(str(video), chunksize=CHUNK_SIZE, resumable=True, mimetype="video/*")
         try:
-            request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+            request = youtube.videos().insert(part=",".join(body), body=body, media_body=media)
             response, failures = None, 0
             while response is None:
                 try:

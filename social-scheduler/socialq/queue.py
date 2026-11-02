@@ -156,6 +156,16 @@ class Post:
     def youtube_description(self) -> str:
         return str(self.option("youtube", "description", self.caption)).strip()
 
+    def youtube_translations(self) -> dict[str, dict[str, str]]:
+        """{language: {title, description}} from `youtube: {translations: ...}`."""
+        out = {}
+        for lang, text in (self.option("youtube", "translations") or {}).items():
+            text = text or {}
+            title, description = str(text.get("title") or "").strip(), str(text.get("description") or "").strip()
+            if title or description:
+                out[str(lang)] = {"title": title or self.youtube_title(), "description": description}
+        return out
+
     def youtube_tags(self) -> list[str]:
         return [t.lstrip("#") for t in self.option("youtube", "tags", self.tags)]
 
@@ -341,6 +351,11 @@ def validate_target(post: Post, target: Target, config: Config) -> list[str]:
             problems.append("youtube title can't contain < or >")
         if len(post.youtube_description().encode()) > YOUTUBE_DESCRIPTION_MAX:
             problems.append(f"youtube description is over {YOUTUBE_DESCRIPTION_MAX} bytes")
+        for lang, text in post.youtube_translations().items():
+            if len(text["title"]) > YOUTUBE_TITLE_MAX:
+                problems.append(f"youtube {lang} title is {len(text['title'])} chars (max {YOUTUBE_TITLE_MAX})")
+            if len(text["description"].encode()) > YOUTUBE_DESCRIPTION_MAX:
+                problems.append(f"youtube {lang} description is over {YOUTUBE_DESCRIPTION_MAX} bytes")
     elif platform == "instagram":
         caption = post.social_caption("instagram")
         if len(caption) > INSTAGRAM_CAPTION_MAX:

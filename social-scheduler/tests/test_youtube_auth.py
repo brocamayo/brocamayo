@@ -409,3 +409,35 @@ def test_add_copies_captions_and_thumbnail_and_keeps_them_until_posted(project, 
 
     assert main(["-c", cfg, "add", str(downloads / "ep.mp4"), "--id", "x", "--title", "T",
                  "--captions", str(downloads / "missing.srt")]) == 1
+
+
+def test_translations_become_youtube_localizations(project):
+    from socialq.cli import main
+    from socialq.config import load_config
+    from socialq.queue import load_queue, validate
+
+    (project / "videos" / "v.mp4").write_bytes(b"x")
+    assert main(["-c", str(project / "config.yaml"), "add", str(project / "videos" / "v.mp4"),
+                 "--title", "Your $308 minimum is a trap", "--caption", "English text",
+                 "--translation", "es", "Tu pago mínimo de $308 es una trampa", "Texto en español\n\nCon $10,000",
+                 "--accounts", "main", "--platforms", "youtube", "--at", "2026-10-01 09:00"]) == 0
+    config = load_config(project / "config.yaml")
+    [post] = load_queue(config)
+    assert validate(post, config) == []
+    body = yt.YouTubePublisher(config, "main").video_body(post)
+    assert body["snippet"]["defaultLanguage"] == "en"
+    assert body["localizations"] == {"es": {"title": "Tu pago mínimo de $308 es una trampa",
+                                            "description": "Texto en español\n\nCon $10,000"}}
+    assert ",".join(body) == "snippet,status,localizations"
+
+
+def test_no_translations_keeps_the_plain_upload_body(project):
+    (project / "videos" / "v.mp4").write_bytes(b"x")
+    (project / "queue.yaml").write_text("- {id: v, video: v.mp4, publish_at: '2026-10-01 09:00', title: T}\n")
+    from socialq.config import load_config
+    from socialq.queue import load_queue
+
+    config = load_config(project / "config.yaml")
+    [post] = load_queue(config)
+    body = yt.YouTubePublisher(config, "main").video_body(post)
+    assert ",".join(body) == "snippet,status" and "defaultLanguage" not in body["snippet"]
