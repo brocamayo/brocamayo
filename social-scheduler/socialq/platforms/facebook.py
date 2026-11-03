@@ -86,7 +86,16 @@ def authorize(config, account: str, user_token: str | None, page: str | None = N
         "fields": "id,name,access_token,tasks", "limit": 100, "access_token": long_lived}, timeout=60)
     if not resp.ok:
         raise PublishError(f"facebook: couldn't list your Pages: {error_text(resp)}")
-    chosen = _pick_page(resp.json().get("data", []), page)
+    pages = resp.json().get("data", [])
+    if page and page.strip().isdigit() and not any(p["id"] == page.strip() for p in pages):
+        # Not in the list (common when the login screen never offered a Page picker): ask for it by ID.
+        direct = requests.get(f"{base}/{page.strip()}", params={
+            "fields": "id,name,access_token,tasks", "access_token": long_lived}, timeout=60)
+        if direct.ok and direct.json().get("access_token"):
+            pages.append(direct.json())
+        else:
+            raise PublishError(f"facebook: this login can't manage Page {page}: {error_text(direct)}")
+    chosen = _pick_page(pages, page)
     tasks = chosen.get("tasks") or []
     if tasks and "CREATE_CONTENT" not in tasks:
         raise PublishError(f"facebook: you can't post on {chosen.get('name')} (your role there is too limited)")

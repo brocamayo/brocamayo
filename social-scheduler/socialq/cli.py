@@ -377,7 +377,7 @@ def cmd_auth(args) -> int:
             authorize(config, account, args.token, page=args.page)
         else:
             from .platforms.instagram import authorize
-            authorize(config, account, args.token, refresh=args.refresh, ig_username=args.ig_username)
+            authorize(config, account, args.token, refresh=args.refresh, ig_username=args.ig_username, page=args.page)
     except PublishError as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -461,7 +461,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--google-id", help="youtube: Google account ID to log in as, e.g. a Brand Account's "
                    "number from myaccount.google.com/brandaccounts")
     p.add_argument("--token", help="instagram/facebook: token from the Meta dashboard or Graph API Explorer")
-    p.add_argument("--page", help="facebook: which Page to post to (its name or ID)")
+    p.add_argument("--page", help="facebook/instagram: the Page to use (its name or ID); an ID works even if "
+                   "the Page isn't in the login's Page list")
     p.add_argument("--ig-username", help="instagram: which linked IG account, e.g. @myhandle")
     p.add_argument("--refresh", action="store_true", help="instagram: extend the saved token")
     p.set_defaults(func=cmd_auth)

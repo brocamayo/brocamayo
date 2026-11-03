@@ -97,8 +97,23 @@ def authorize_instagram_login(config, account: str, token: str, ig_username: str
     print(f"Instagram logged in for '{account}' as @{username}. It renews itself automatically.")
 
 
-def _choose_ig_account(base: str, token: str, wanted: str | None) -> dict:
+def _ig_from_page_id(base: str, token: str, page_id: str) -> dict:
+    """The Instagram account linked to one Page, looked up by the Page's ID."""
+    resp = requests.get(f"{base}/{page_id}", params={
+        "fields": "name,access_token,instagram_business_account{id,username}", "access_token": token}, timeout=60)
+    if not resp.ok:
+        raise PublishError(f"instagram: this login can't open Page {page_id}: {error_text(resp)}")
+    body = resp.json()
+    if not body.get("instagram_business_account"):
+        raise PublishError(f"instagram: Page {body.get('name', page_id)} has no Instagram account linked")
+    return body["instagram_business_account"] | {"page": body.get("name", page_id),
+                                                  "page_token": body.get("access_token")}
+
+
+def _choose_ig_account(base: str, token: str, wanted: str | None, page_id: str | None = None) -> dict:
     """The linked Instagram account to use: {id, username, page, page_token}."""
+    if page_id:
+        return _ig_from_page_id(base, token, page_id.strip())
     resp = requests.get(f"{base}/me/accounts", params={
         "fields": "name,access_token,instagram_business_account{id,username}", "access_token": token, "limit": 100,
     }, timeout=60)
@@ -128,7 +143,7 @@ def _choose_ig_account(base: str, token: str, wanted: str | None) -> dict:
 
 
 def authorize(config, account: str, short_lived_token: str | None, refresh: bool = False,
-              ig_username: str | None = None) -> None:
+              ig_username: str | None = None, page: str | None = None) -> None:
     """Swap a short-lived Meta user token for a ~60-day one and pick the IG account."""
     if short_lived_token:
         # Pasted tokens often carry a stray space, newline or quotes.
@@ -176,7 +191,9 @@ def authorize(config, account: str, short_lived_token: str | None, refresh: bool
     data = resp.json()
     token = data["access_token"]
     expires_at = int(time.time()) + int(data.get("expires_in", 60 * 86400))
-    ig = _choose_ig_account(base, token, ig_username)
+    ig = _choose_ig_account(base, token, ig_username, page_id=page if page and page.strip().isdigit() else None)
+    if ig_username and str(ig.get("username", "")).lower() != ig_username.lstrip("@").lower():
+        raise PublishError(f"instagram: that Page is linked to @{ig.get('username')}, not {ig_username}")
 
     host = config.settings(account, "instagram").get("graph_host", "graph.facebook.com")
     if host == IG_LOGIN_HOST:

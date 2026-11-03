@@ -210,3 +210,36 @@ def test_auth_needs_app_keys(config, monkeypatch):
     monkeypatch.delenv("META_APP_ID", raising=False)
     with pytest.raises(PublishError, match="META_APP_ID"):
         fb.authorize(config, "main", "short")
+
+
+def test_auth_finds_a_page_by_id_when_the_list_is_empty(project, config, monkeypatch):
+    from socialq.platforms import facebook as fb
+    from socialq.platforms import instagram as ig
+
+    def fake_get(url, params, timeout):
+        if url.endswith("graph.instagram.com/v25.0/me"):
+            return FakeResponse(400, {})
+        if url.endswith("/oauth/access_token"):
+            return FakeResponse(200, {"access_token": "long"})
+        if url.endswith("/me/accounts"):
+            return FakeResponse(200, {"data": []})
+        if url.endswith("/615955"):
+            if "instagram_business_account" in params["fields"]:
+                return FakeResponse(200, {"name": "Snowballer", "access_token": "pt",
+                                          "instagram_business_account": {"id": "1784", "username": "snowballerapp"}})
+            return FakeResponse(200, {"id": "615955", "name": "Snowballer", "access_token": "pt",
+                                      "tasks": ["CREATE_CONTENT"]})
+        raise AssertionError(url)
+
+    monkeypatch.setenv("META_APP_ID", "app")
+    monkeypatch.setenv("META_APP_SECRET", "secret")
+    monkeypatch.setattr(fb.requests, "get", fake_get)
+    fb.authorize(config, "main", "EAAshort", page="615955")
+    assert json.loads((project / "credentials" / "main" / "facebook_token.json").read_text())["page_id"] == "615955"
+
+    ig.authorize(config, "main", "EAAshort", ig_username="@snowballerapp", page="615955")
+    saved = json.loads((project / "credentials" / "main" / "instagram_token.json").read_text())
+    assert (saved["ig_user_id"], saved["access_token"], saved["page"]) == ("1784", "pt", "Snowballer")
+
+    with pytest.raises(PublishError, match="linked to @snowballerapp, not @someoneelse"):
+        ig.authorize(config, "main", "EAAshort", ig_username="@someoneelse", page="615955")
