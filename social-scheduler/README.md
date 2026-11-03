@@ -79,7 +79,7 @@ The **developer app** for each platform (the keys in `.env` and the YouTube clie
 | `init [dir]` | Create starter `config.yaml`, `queue.yaml`, `.env` |
 | `accounts` | Show each account and which platforms are logged in |
 | `auth PLATFORM --account NAME` | Log in one account to `youtube`, `instagram`, `facebook`, `tiktok` or `x` |
-| `add VIDEO [--title --caption --tags --at --accounts --platforms --id --playlist --comment --translation --captions --thumbnail --ig-caption --fb-caption --tiktok-caption]` | Queue a video. Without `--at` it takes the next free slot; without `--accounts` it goes to every account |
+| `add VIDEO [--title --caption --tags --at --accounts --platforms --id --playlist --comment --translation --captions --thumbnail --ig-caption --fb-caption --tiktok-caption --x-caption]` | Queue a video. Without `--at` it takes the next free slot; without `--accounts` it goes to every account |
 | `list [-a]` | Show upcoming posts and their status on each account/platform |
 | `check` | Validate the queue: files exist, caption and title limits |
 | `run [--dry-run]` | Publish everything that's due, then exit. This is what the scheduled job runs |
@@ -119,7 +119,7 @@ Pass `-c path/to/config.yaml` before the command if you're not running from the 
 
 See `queue.example.yaml` for a full example. For vertical Shorts, put `#Shorts` in the title or description.
 
-On Instagram, Facebook, TikTok and X the caption is used without `#Shorts` (it means nothing there). If the caption has no hashtags of its own, the tags are added as hashtags (`debt-free` becomes `#debtfree`). To write a different caption for one platform, use `--ig-caption` / `--fb-caption` / `--tiktok-caption` with `add`, or a `caption:` override in the queue.
+On Instagram, Facebook, TikTok and X the caption is used without `#Shorts` (it means nothing there). If the caption has no hashtags of its own, the tags are added as hashtags (`debt-free` becomes `#debtfree`). To write a different caption for one platform, use `--ig-caption` / `--fb-caption` / `--tiktok-caption` / `--x-caption` with `add`, or a `caption:` override in the queue.
 
 **Other languages on YouTube:** `--translation es "Título" "Descripción"` (repeatable) adds a title and description that YouTube shows to viewers whose YouTube is set to that language; everyone else sees the main ones. The main text is marked as English (`language` in config.yaml or on the post changes it).
 

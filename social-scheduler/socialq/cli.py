@@ -117,7 +117,7 @@ def cmd_add(args) -> int:
         else:
             entry["thumbnail"] = stored
     for platform, text in (("instagram", args.ig_caption), ("facebook", args.fb_caption),
-                           ("tiktok", args.tiktok_caption)):
+                           ("tiktok", args.tiktok_caption), ("x", args.x_caption)):
         if text is not None:
             entry[platform] = {"caption": text}
     if any(p.id == entry["id"] for p in posts):
@@ -409,6 +409,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ig-caption", help="instagram: use this caption instead of --caption")
     p.add_argument("--fb-caption", help="facebook: use this caption instead of --caption")
     p.add_argument("--tiktok-caption", help="tiktok: use this caption instead of --caption")
+    p.add_argument("--x-caption", help="x: use this text instead of --caption (280 characters unless Premium)")
     p.add_argument("--at", help="'YYYY-MM-DD HH:MM' in your timezone; default = next free slot")
     p.add_argument("-a", "--accounts", nargs="+", help="which accounts (default: all)")
     p.add_argument("-p", "--platforms", nargs="+", choices=PLATFORMS, help="default: all the account has")

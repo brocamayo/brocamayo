@@ -268,3 +268,19 @@ def test_spread_gives_waiting_posts_their_own_slots(project, capsys):
     assert posts["a"].caption == "x: y"
     text = (project / "queue.yaml").read_text()
     assert text.startswith("# my queue\n") and "Spread 2 post(s) over 2 day(s)" in capsys.readouterr().out
+
+
+def test_x_caption_override_fits_where_the_long_caption_would_not(project):
+    from socialq.cli import main
+    from socialq.config import load_config
+    from socialq.queue import load_queue, validate
+
+    (project / "videos" / "v.mp4").write_bytes(b"x")
+    long = "word " * 100
+    assert main(["-c", str(project / "config.yaml"), "add", str(project / "videos" / "v.mp4"), "--title", "T",
+                 "--caption", long, "--x-caption", "Short one https://example.com/x",
+                 "--accounts", "main", "--platforms", "x", "--at", "2026-10-01 09:00"]) == 0
+    config = load_config(project / "config.yaml")
+    [post] = load_queue(config)
+    assert post.social_caption("x") == "Short one https://example.com/x"
+    assert validate(post, config) == []
