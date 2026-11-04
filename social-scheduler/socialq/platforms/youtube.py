@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from ..queue import Post
-from .base import NotLoggedIn, PublishError, PublishResult, Publisher, auth_hint, log
+from .base import NotLoggedIn, PublishError, PublishResult, Publisher, TryLater, auth_hint, log
 
 UPLOAD_TIMEOUT_S = 120      # a connection that sends nothing for this long is treated as dropped
 NETWORK_RETRIES = 10     # in a row; the upload resumes where it stopped after each one
@@ -44,7 +44,17 @@ def _credentials(config, account: str, interactive: bool = False, login_hint: st
         # Use the scopes saved with the token: older logins may not have youtube.readonly.
         creds = Credentials.from_authorized_user_file(str(token_file))
     if creds and creds.expired and creds.refresh_token and not interactive:
-        creds.refresh(Request())
+        from google.auth.exceptions import RefreshError, TransportError
+
+        try:
+            creds.refresh(Request())
+        except TransportError as exc:
+            # Couldn't reach Google (slow or dropped connection): nothing was uploaded, try again later.
+            raise TryLater(f"youtube ({account}): couldn't reach Google to refresh the login "
+                           f"({type(exc).__name__}); trying again later") from exc
+        except RefreshError as exc:
+            raise NotLoggedIn(f"youtube ({account}): the login stopped working ({exc}). "
+                              f"Run `{auth_hint('youtube', account, config)}`.") from exc
     if interactive or not creds or not creds.valid:
         if not interactive:
             raise NotLoggedIn(f"youtube ({account}): not logged in. Run `{auth_hint('youtube', account, config)}`.")

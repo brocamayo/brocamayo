@@ -441,3 +441,23 @@ def test_no_translations_keeps_the_plain_upload_body(project):
     [post] = load_queue(config)
     body = yt.YouTubePublisher(config, "main").video_body(post)
     assert ",".join(body) == "snippet,status" and "defaultLanguage" not in body["snippet"]
+
+
+def test_login_refresh_problems_wait_instead_of_crashing(project, config, monkeypatch):
+    import json as _json
+
+    from google.auth.exceptions import RefreshError, TransportError
+    from google.oauth2.credentials import Credentials
+
+    from socialq.platforms.base import NotLoggedIn, TryLater
+
+    token = project / "credentials" / "main" / "youtube_token.json"
+    token.parent.mkdir(parents=True, exist_ok=True)
+    token.write_text(_json.dumps({"token": "t", "refresh_token": "r", "client_id": "c", "client_secret": "s",
+                                  "token_uri": "https://oauth2.googleapis.com/token", "expiry": "2020-01-01T00:00:00Z"}))
+    for error, expected in ((TransportError("Read timed out"), TryLater), (RefreshError("invalid_grant"), NotLoggedIn)):
+        def boom(self, request, error=error):
+            raise error
+        monkeypatch.setattr(Credentials, "refresh", boom)
+        with pytest.raises(expected):
+            yt._credentials(config, "main")
