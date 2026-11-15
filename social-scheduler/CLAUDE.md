@@ -4,10 +4,15 @@ This folder is **socialq**, a CLI that posts Broc's videos to YouTube, TikTok, I
 On the Mac it lives in `~/social-scheduler`. Run it as `./sq <command>`. A launchd job runs `./sq run`
 every 10 minutes in the background, so anything queued with a past time goes out on its own.
 
-Usually Broc pastes a **packaging block**: a file path, title, description, pinned comment, captions
-per platform, and sometimes Spanish. Your job is to check it, queue it with `./sq add`, run it, and tell
-Broc what's left to do by hand. Sending the package is the go-ahead to post. Stop and ask only when
-something below says to.
+Packages arrive three ways, and every one is a go-ahead to post:
+- **Unattended (intake):** the `com.socialq.intake` job finds a new `NAME-packaging.md` in ~/Downloads
+  (or `inbox/`) and runs `claude -p` here. See "Unattended runs" below.
+- **From Broc's phone:** he messages a Remote Control session running in this folder. See "From the phone".
+- **Pasted in a chat:** a packaging block with the file path, title, description, pinned comment,
+  captions per platform, and sometimes Spanish.
+
+Your job is to check it, queue it, and tell Broc what's left to do by hand. Stop and ask (or, unattended,
+report `needs-you`) only when something below says to.
 
 ## Accounts and routing
 
@@ -46,7 +51,10 @@ Which kind of video goes where:
    the right day. Point that out, and offer the fix if it would post late.
 5. **Placeholders.** `[LONG-FORM LINK]` comes from the posted long video (see below). For any other
    `[SOMETHING LINK]`, find the real link, and tell Broc which one you used so he can confirm it.
-6. **Duplicate ids.** `./sq add` refuses an id that already exists, so pick a new, descriptive one.
+6. **Ids come from the file name:** the video's file name without `.mp4`, lowercased, with spaces and
+   underscores turned into `-` (`Nvidia-Short-2-Less-For-20.mp4` → `nvidia-short-2-less-for-20`). The
+   Snowballer social entry adds `-social`. Run `./sq list --all` first: if the id is already there, it's
+   already queued or posted, so skip it. Never invent a second id for the same video.
 7. **Snowballer disclosure.** Broc built the app. If "I built it" is missing from the TikTok/IG captions,
    mention it once (FTC). Earlier shorts linked `https://snowballerapp.com/yt`, which tracks YouTube
    sign-ups; mention it if a YouTube description has no link.
@@ -77,10 +85,10 @@ EOF
 ```
 Leave out `--captions` if there's no .srt, and `--translation` if there's no Spanish.
 
-**Short that links to its long video.** The long video's URL is in `state.json` under
-`posts.<long-id>["brocmayo/youtube"].url`. If it's empty, the long video isn't up yet: don't queue the short.
+**Short that links to its long video.** `./sq url LONG-ID` prints the long video's YouTube link. If it
+prints nothing, the long video isn't up yet: don't queue the short.
 ```
-LINK=$(python3 -c "import json;print(json.load(open('state.json'))['posts'].get('LONG-ID',{}).get('brocmayo/youtube',{}).get('url') or '')")
+LINK=$(./sq url LONG-ID)
 ```
 Put `$LINK` in place of `[LONG-FORM LINK]` in the description and the comment. Pass the TikTok
 caption with `--tiktok-caption`.
@@ -95,15 +103,11 @@ caption with `--tiktok-caption`.
 && ./sq spread instagram facebook >/dev/null && caffeinate -dims ./sq run
 ```
 
-**Reschedule posts that are already queued** (there's no CLI command for it):
+**Reschedule posts that are already queued:**
 ```
-.venv/bin/python -c "
-from socialq.config import load_config
-from socialq.queue import set_publish_times
-print(set_publish_times(load_config('config.yaml'), {'post-id': '2026-11-20 08:00'}), 'moved')"
+./sq reschedule post-id --at '2026-11-20 08:00'
+./sq reschedule first-id second-id --at now     # posts them on the next run, in this order
 ```
-To post queued items right now, give them a time a minute or two ago, in the order they should go,
-then `./sq run`.
 
 **Other commands:**
 - `./sq list`: what's queued.
@@ -111,10 +115,50 @@ then `./sq run`.
 - `./sq remove ID`: take a post out of the queue.
 - `./sq retry failed [platform]`: re-queue failed uploads.
 - `./sq check`: validate the queue.
+- `./sq url ID`: link of a published post.
+- `./sq intake -v`: run the package pickup once by hand (normally the background job does it).
 
 **"Another run is in progress"** means the background job is uploading. That's fine: it will post the new
 item too. To make the new item go first:
 `pkill -f "socialq run"; sleep 2; rm -f .socialq.lock && caffeinate -dims ./sq run`
+
+## Unattended runs (intake)
+
+When you're started by `./sq intake`, nobody is watching and nobody can answer. So:
+- Don't ask questions. Decide by the rules here, or leave the video out and say why.
+- Don't use heredocs or long shell commands. Write one JSON spec per video (or a list for the two
+  Snowballer entries) to `intake/specs/<id>.json`, then run `./sq add-spec intake/specs/<id>.json`.
+  The fields are `add`'s options:
+  ```json
+  [{"video": "~/Downloads/Snowballer-Short-X.mp4", "id": "snowballer-short-x", "title": "…",
+    "caption": "…", "captions": "~/Downloads/Snowballer-Short-X.srt", "comment": "…",
+    "accounts": ["brocmayo", "snowballer"], "platforms": ["youtube"], "at": "2026-10-01 09:00",
+    "translations": {"es": {"title": "…", "description": "…"}}},
+   {"video": "…same…", "id": "snowballer-short-x-social", "title": "…", "caption": "…",
+    "tiktok_caption": "…", "ig_caption": "…", "fb_caption": "…",
+    "accounts": ["snowballer"], "platforms": ["tiktok", "instagram", "facebook"], "at": "2026-10-01 09:00"}]
+  ```
+  Leave a field out when the package doesn't have it (`captions` only if the .srt exists).
+- Then `./sq spread instagram facebook` if you queued IG/FB. Don't run `./sq run`: the background
+  job posts within 10 minutes.
+- Pick times by "Spacing" below. Post now (`2026-10-01 09:00`) unless spacing or the wording says otherwise.
+- A short whose long video isn't up yet, or a video file that isn't there yet: leave it out, and end
+  with `STATUS: deferred`. Intake runs you again in 30 minutes, and duplicates are skipped by id.
+- A failed fact check or an unknown placeholder link: don't queue that video. Explain it in one or two
+  lines, and end with `STATUS: needs-you`.
+- Your last line is the status (`STATUS: queued`, `STATUS: deferred` or `STATUS: needs-you`). Everything
+  before it is sent to Broc's phone, so keep it short and plain.
+
+## From the phone
+
+Broc may message a Remote Control session (`claude remote-control` in this folder) from the Claude app.
+He can't see the terminal, so run the commands yourself and report results in plain words. Typical asks:
+- "post the Nvidia short" / a pasted package: find the files in ~/Downloads and queue them as above.
+- "what's queued?": `./sq list`. "Is X up?": `./sq url X`.
+- "post X now" / "move X to Friday": `./sq reschedule`. "Cancel X": `./sq remove X` (confirm first).
+- "Did the package go through?": read `intake.json` and the end of `intake.log`.
+
+Videos he records on the phone reach the Mac by AirDrop (they land in ~/Downloads).
 
 ## Spacing
 

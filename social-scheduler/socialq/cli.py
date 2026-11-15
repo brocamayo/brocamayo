@@ -134,6 +134,115 @@ def cmd_add(args) -> int:
     return 0
 
 
+SPEC_FLAGS = {
+    "id": "--id", "title": "--title", "caption": "--caption", "captions": "--captions",
+    "thumbnail": "--thumbnail", "comment": "--comment", "playlist": "--playlist", "at": "--at",
+    "tiktok_caption": "--tiktok-caption", "ig_caption": "--ig-caption", "fb_caption": "--fb-caption",
+    "x_caption": "--x-caption",
+}
+
+
+def spec_to_argv(spec: dict) -> list[str]:
+    """Turn one add-spec entry (JSON object) into the arguments `add` takes."""
+    if not isinstance(spec, dict) or not spec.get("video"):
+        raise ValueError("each spec needs at least a \"video\"")
+    known = {"video", "accounts", "platforms", "tags", "translations", *SPEC_FLAGS}
+    unknown = sorted(set(spec) - known)
+    if unknown:
+        raise ValueError(f"unknown spec field(s): {', '.join(unknown)} (allowed: {', '.join(sorted(known))})")
+    argv = ["add", str(Path(str(spec["video"])).expanduser())]
+    for key, flag in SPEC_FLAGS.items():
+        value = spec.get(key)
+        if value is None or value == "":
+            continue
+        if key in ("captions", "thumbnail"):
+            value = str(Path(str(value)).expanduser())
+        argv += [flag, str(value)]
+    for key in ("accounts", "platforms"):
+        values = spec.get(key)
+        if values:
+            argv += [f"--{key}", *([values] if isinstance(values, str) else [str(v) for v in values])]
+    tags = spec.get("tags")
+    if tags:
+        argv += ["--tags", tags if isinstance(tags, str) else ",".join(str(t) for t in tags)]
+    translations = spec.get("translations") or {}
+    if isinstance(translations, dict):
+        translations = [{"lang": k, **v} for k, v in translations.items()]
+    for t in translations:
+        argv += ["--translation", str(t["lang"]), str(t["title"]), str(t["description"])]
+    return argv
+
+
+def cmd_add_spec(args) -> int:
+    """Queue posts described in a JSON file (what the intake job's Claude writes)."""
+    import json
+
+    data = json.loads(Path(args.spec).expanduser().read_text())
+    specs = data if isinstance(data, list) else [data]
+    worst = 0
+    for spec in specs:
+        sub_args = build_parser().parse_args(["--config", args.config, *spec_to_argv(spec)])
+        worst = max(worst, cmd_add(sub_args))
+    return worst
+
+
+def cmd_url(args) -> int:
+    """Print the link of a published post (e.g. a long video a short points to)."""
+    config = load_config(args.config)
+    entries = State(config.state_file).data["posts"].get(args.post_id, {})
+    keys = [k for k in entries if not args.where or args.where in (k, *k.split("/"))]
+    keys.sort(key=lambda k: (not k.endswith("/youtube"), k))
+    for key in keys:
+        entry = entries[key]
+        if entry.get("status") == "published" and entry.get("url"):
+            print(entry["url"])
+            return 0
+    print(f"{args.post_id} isn't published yet" + (f" on {args.where}" if args.where else ""), file=sys.stderr)
+    return 1
+
+
+def cmd_reschedule(args) -> int:
+    """Move queued posts to a new time; several ids go out a minute apart, in the order given."""
+    config = load_config(args.config)
+    known = {p.id for p in load_queue(config)}
+    missing = [i for i in args.post_ids if i not in known]
+    if missing:
+        print(f"Not in the queue: {', '.join(missing)}", file=sys.stderr)
+        return 1
+    now = datetime.now(config.timezone).replace(second=0, microsecond=0)
+    if args.at.strip().lower() == "now":
+        start = now - timedelta(minutes=len(args.post_ids))
+    else:
+        start = parse_datetime(args.at, config.timezone)
+    times = {pid: (start + timedelta(minutes=i)).strftime(DATETIME_FORMAT) for i, pid in enumerate(args.post_ids)}
+    set_publish_times(config, times)
+    for pid, when in times.items():
+        print(f"{pid} -> {when}")
+    if start <= now:
+        print("  it's due, so it posts on the next run (within 10 minutes), or run ./sq run now")
+    return 0
+
+
+def cmd_intake(args) -> int:
+    """Hand new packaging files to Claude to check and queue (run by launchd)."""
+    from .intake import mark_seen, run_intake
+
+    config = load_config(args.config)
+    setup_logging(config.base_dir, args.verbose)
+    if args.mark_seen:
+        print(f"Marked {mark_seen(config)} packaging file(s) as already handled; only new ones will be picked up.")
+        return 0
+    try:
+        with run_lock(config.base_dir / ".socialq-intake.lock", stale_after_s=2 * 3600):
+            results = run_intake(config)
+    except AlreadyRunning as exc:
+        log.info("%s", exc)
+        return 0
+    for pkg, result in results:
+        print(f"{result.status:<10} {pkg.name}\n{result.summary}\n")
+    return 0
+
+
 def cmd_list(args) -> int:
     config = load_config(args.config)
     state = State(config.state_file)
@@ -415,6 +524,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-p", "--platforms", nargs="+", choices=PLATFORMS, help="default: all the account has")
     p.add_argument("--id")
     p.set_defaults(func=cmd_add)
+
+    p = sub.add_parser("add-spec", help="queue posts described in a JSON file (fields = add's options)")
+    p.add_argument("spec")
+    p.set_defaults(func=cmd_add_spec)
+
+    p = sub.add_parser("url", help="print the link of a published post")
+    p.add_argument("post_id")
+    p.add_argument("where", nargs="?", help="e.g. youtube or brocmayo/youtube (default: YouTube first)")
+    p.set_defaults(func=cmd_url)
+
+    p = sub.add_parser("reschedule", help="move queued posts to a new time ('now' posts them on the next run)")
+    p.add_argument("post_ids", nargs="+")
+    p.add_argument("--at", required=True, help="'YYYY-MM-DD HH:MM' or now; several ids go a minute apart")
+    p.set_defaults(func=cmd_reschedule)
+
+    p = sub.add_parser("intake", help="hand new *-packaging.md files to Claude to check and queue")
+    p.add_argument("--mark-seen", action="store_true", help="treat the packaging files there now as done")
+    p.add_argument("-v", "--verbose", action="store_true")
+    p.set_defaults(func=cmd_intake)
 
     p = sub.add_parser("list", help="show upcoming posts and their status")
     p.add_argument("-a", "--all", action="store_true", help="include fully published posts")

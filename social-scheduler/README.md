@@ -87,6 +87,10 @@ The **developer app** for each platform (the keys in `.env` and the YouTube clie
 | `retry POST_ID [where]` | Clear a status so it's attempted again. `where` can be `youtube`, `second`, or `second/youtube`. `retry failed [where]` does every failed upload |
 | `spread PLATFORM... [--times 09:00 13:00 18:00] [--start ...]` | Give each post still waiting on those platforms its own time slot, a few per day (e.g. a backlog of Reels before connecting Instagram) |
 | `remove POST_ID` | Take a post out of the queue, e.g. when you re-cut the video. What's already posted stays up |
+| `add-spec FILE.json` | Queue posts described in a JSON file whose fields are `add`'s options (`video`, `title`, `caption`, `accounts`, `platforms`, `tiktok_caption`, `translations`...). One object or a list |
+| `url POST_ID [where]` | Print the link of a published post, YouTube first |
+| `reschedule POST_ID... --at WHEN` | Move queued posts to a new time. `--at now` posts them on the next run, in the order given |
+| `intake [--mark-seen]` | Hand new `*-packaging.md` files to Claude Code to check and queue (see *Hands-free posting*) |
 | `copy-videos` | Copy waiting videos that live on the Desktop, in Downloads, etc. into the videos folder (`add` does this itself now) |
 
 Pass `-c path/to/config.yaml` before the command if you're not running from the project folder.
@@ -224,6 +228,20 @@ To stop Windows from skipping runs while on battery, open the task in Task Sched
 For always-on posting without leaving your computer on, run the same cron line on a small cloud VM or a Raspberry Pi, with your `videos/` folder synced through Dropbox, OneDrive or Google Drive.
 
 Logs go to `socialq.log`. To get a summary after each run, set `NOTIFY_WEBHOOK_URL` in `.env` to a Slack, Discord or Teams incoming webhook.
+
+## Hands-free posting (macOS)
+
+`bash setup-intake-mac.sh` adds a second background job. Every 5 minutes it looks for new
+`NAME-packaging.md` files in `~/Downloads` and `inbox/` (once the files have stopped changing). It
+then runs Claude Code (`claude -p`) in this folder for each package. Claude follows `CLAUDE.md`: it
+checks the facts and chapters, picks the accounts, writes a spec and runs `add-spec`. It ends with a
+status line (`queued`, `deferred` or `needs-you`), and the summary is sent to your phone through ntfy
+(`NTFY_TOPIC`). A short whose long video isn't posted yet is retried every 30 minutes for up to 48
+hours. The regular job then posts what's due.
+
+It needs Claude Code installed and logged in on the Mac. The background job also needs Full Disk
+Access to read Downloads, and the script prints which programs to allow. To control socialq from
+your phone, run `claude remote-control` in this folder and open the session in the Claude app.
 
 ## Files
 

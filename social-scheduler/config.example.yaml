@@ -18,6 +18,14 @@ try_later_hours: 48             # a slow connection or full TikTok inbox is retr
 copy_videos: true               # `add` copies videos into videos/queued/ so the background job can
                                 # read them; deleted once posted everywhere
 
+# Hands-free posting (setup-intake-mac.sh): new *-packaging.md files in these folders are handed
+# to Claude Code, which checks and queues them by CLAUDE.md and sends the summary to your phone.
+# intake:
+#   folders: [~/Downloads, inbox]
+#   command: claude            # path to Claude Code if it isn't on the PATH
+#   retry_minutes: 30          # a short waiting on its long video is tried again this often
+#   give_up_hours: 48
+
 # ---------------------------------------------------------------------------
 # Your accounts. Rename them to whatever you like (letters/numbers/dashes).
 # Each one logs in separately:  python -m socialq auth youtube --account main

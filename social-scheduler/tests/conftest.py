@@ -18,6 +18,7 @@ def project(tmp_path, monkeypatch):
 timezone: America/Los_Angeles
 slots: ["mon,wed,fri 17:00"]
 max_attempts: 2
+intake: {folders: [inbox]}
 accounts:
   main:
     platforms: [youtube, instagram, tiktok, x]

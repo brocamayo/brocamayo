@@ -36,6 +36,7 @@ class Config:
     retry_delay_minutes: int = 30
     try_later_hours: int = 48
     copy_videos: bool = True
+    intake: dict[str, Any] = field(default_factory=dict)
     defaults: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def account(self, name: str | None) -> Account:
@@ -130,6 +131,7 @@ def load_config(config_path: str | os.PathLike = "config.yaml") -> Config:
         retry_delay_minutes=int(raw.get("retry_delay_minutes", 30)),
         try_later_hours=int(raw.get("try_later_hours", 48)),
         copy_videos=bool(raw.get("copy_videos", True)),
+        intake=dict(raw.get("intake") or {}),
         accounts=_parse_accounts(raw, defaults),
         defaults=defaults,
     )
