@@ -55,7 +55,13 @@ Which kind of video goes where:
    underscores turned into `-` (`Nvidia-Short-2-Less-For-20.mp4` → `nvidia-short-2-less-for-20`). The
    Snowballer social entry adds `-social`. Run `./sq list --all` first: if the id is already there, it's
    already queued or posted, so skip it. Never invent a second id for the same video.
-7. **Snowballer disclosure.** Broc built the app. If "I built it" is missing from the TikTok/IG captions,
+7. **Silent videos.** If the package says the track is silent or asks for sound effects, run
+   `./sq sfx VIDEO` first. It adds a whoosh on each cut, a tick when text appears, and a chime on the final
+   reveal (`--bed` adds a quiet music pad), and saves `NAME-sfx.mp4`. Queue the `-sfx.mp4`, but keep the
+   ids from the original name. Needs ffmpeg (`brew install ffmpeg`).
+8. **Two titles for two channels.** When a package gives a different title per YouTube channel, queue
+   one YouTube entry per account (`<id>` for brocmayo, `<id>-snowballer` for snowballer) plus the `-social` entry.
+9. **Snowballer disclosure.** Broc built the app. If "I built it" is missing from the TikTok/IG captions,
    mention it once (FTC). Earlier shorts linked `https://snowballerapp.com/yt`, which tracks YouTube
    sign-ups; mention it if a YouTube description has no link.
 

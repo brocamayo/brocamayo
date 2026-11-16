@@ -243,6 +243,23 @@ def cmd_intake(args) -> int:
     return 0
 
 
+def cmd_sfx(args) -> int:
+    """Add synthesized sound effects (and optionally a quiet music bed) to a silent video."""
+    from .sfx import add_sfx
+
+    try:
+        out, events = add_sfx(Path(args.video), Path(args.out).expanduser() if args.out else None, bed=args.bed)
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    counts = {k: sum(e.kind == k for e in events) for k in ("whoosh", "tick", "chime")}
+    print(f"Saved {out}")
+    print(f"  {counts['whoosh']} whoosh, {counts['tick']} tick, chime at "
+          f"{next(e.t for e in events if e.kind == 'chime'):.1f}s" + (", with a music bed" if args.bed else ""))
+    print("  Watch it once before posting: open " + str(out))
+    return 0
+
+
 def cmd_list(args) -> int:
     config = load_config(args.config)
     state = State(config.state_file)
@@ -543,6 +560,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mark-seen", action="store_true", help="treat the packaging files there now as done")
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(func=cmd_intake)
+
+    p = sub.add_parser("sfx", help="add sound effects to a silent video (needs ffmpeg) -> NAME-sfx.mp4")
+    p.add_argument("video")
+    p.add_argument("--out", help="where to save it (default: NAME-sfx.mp4 next to the video)")
+    p.add_argument("--bed", action="store_true", help="also add a quiet music pad under the effects")
+    p.set_defaults(func=cmd_sfx)
 
     p = sub.add_parser("list", help="show upcoming posts and their status")
     p.add_argument("-a", "--all", action="store_true", help="include fully published posts")
