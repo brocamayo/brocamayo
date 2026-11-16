@@ -101,7 +101,7 @@ def render(events: list[Event], duration: float, bed: bool, path: Path, seed: in
 
 # --- timing -----------------------------------------------------------------------------
 
-def plan(changes: list[tuple[float, float]], duration: float) -> list[Event]:
+def plan(changes: list[tuple[float, float]], duration: float, chime_at: float | None = None) -> list[Event]:
     """Pick effects from (time, scene score) pairs: whooshes on cuts, ticks on smaller changes,
     and a chime on the last big change in the final third (or near the end)."""
     events: list[Event] = []
@@ -119,6 +119,8 @@ def plan(changes: list[tuple[float, float]], duration: float) -> list[Event]:
         last = t
     reveal = [e for e in events if e.t >= duration * 0.66]
     target = reveal[-1].t if reveal else max(0.0, duration - 2.5)
+    if chime_at is not None:
+        target = min(max(0.0, chime_at), max(0.0, duration - 0.3))
     events = [e for e in events if abs(e.t - target) >= MIN_GAP_S]
     events.append(Event(target, "chime"))
     return sorted(events, key=lambda e: e.t)
@@ -148,12 +150,15 @@ def detect(video: Path, ffmpeg: str) -> tuple[list[tuple[float, float]], float]:
     return changes, duration
 
 
-def add_sfx(video: Path, out: Path | None = None, bed: bool = False) -> tuple[Path, list[Event]]:
+def add_sfx(video: Path, out: Path | None = None, bed: bool = False,
+            chime_at: float | None = None) -> tuple[Path, list[Event]]:
     ffmpeg = _ffmpeg()
     video = Path(video).expanduser().resolve()
+    if not video.is_file():
+        raise RuntimeError(f"not found: {video}")
     out = out or video.with_name(f"{video.stem}-sfx{video.suffix}")
     changes, duration = detect(video, ffmpeg)
-    events = plan(changes, duration)
+    events = plan(changes, duration, chime_at)
     with tempfile.TemporaryDirectory() as tmp:
         audio = Path(tmp) / "sfx.wav"
         render(events, duration, bed, audio)

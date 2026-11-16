@@ -40,3 +40,8 @@ def test_add_sfx_end_to_end(tmp_path):
     probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0",
                             str(out)], capture_output=True, text=True).stdout.split()
     assert probe == ["video", "audio"]
+
+
+def test_plan_chime_can_be_placed_by_hand():
+    events = sfx.plan([(3.0, 0.02), (33.0, 0.02)], 34.0, chime_at=33.0)
+    assert [(e.t, e.kind) for e in events] == [(3.0, "tick"), (33.0, "chime")]
