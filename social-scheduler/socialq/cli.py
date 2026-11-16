@@ -249,14 +249,18 @@ def cmd_sfx(args) -> int:
 
     try:
         out, events = add_sfx(Path(args.video), Path(args.out).expanduser() if args.out else None, bed=args.bed,
-                              chime_at=args.chime_at)
+                              chime_at=args.chime_at, speed=args.speed, beat=args.beat,
+                              music=Path(args.music) if args.music else None, music_volume=args.music_volume)
     except RuntimeError as exc:
         print(exc, file=sys.stderr)
         return 1
     counts = {k: sum(e.kind == k for e in events) for k in ("whoosh", "tick", "chime")}
     print(f"Saved {out}")
     print(f"  {counts['whoosh']} whoosh, {counts['tick']} tick, chime at "
-          f"{next(e.t for e in events if e.kind == 'chime'):.1f}s" + (", with a music bed" if args.bed else ""))
+          f"{next(e.t for e in events if e.kind == 'chime'):.1f}s"
+          + (f", music: {Path(args.music).name}" if args.music else ", with a beat" if args.beat
+             else ", with a music bed" if args.bed else "")
+          + (f", sped up {args.speed}x" if args.speed != 1 else ""))
     print("  at: " + ", ".join(f"{e.t:.1f}s {e.kind}" for e in events))
     print("  Watch it once before posting: open " + str(out))
     return 0
@@ -567,7 +571,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("video")
     p.add_argument("--out", help="where to save it (default: NAME-sfx.mp4 next to the video)")
     p.add_argument("--bed", action="store_true", help="also add a quiet music pad under the effects")
-    p.add_argument("--chime-at", type=float, help="seconds: put the reveal chime here instead of guessing")
+    p.add_argument("--chime-at", type=float, help="seconds: put the reveal chime here instead of guessing "
+                   "(in the sped-up video's time if --speed is used)")
+    p.add_argument("--speed", type=float, default=1.0, help="speed the video up, e.g. 1.3 (34 s -> 26 s)")
+    p.add_argument("--music", help="an mp3/m4a/wav to put under the effects (looped, faded out at the end)")
+    p.add_argument("--music-volume", type=float, default=0.5, help="music level, 0-1 (default 0.5)")
+    p.add_argument("--beat", action="store_true", help="a synthesized upbeat drum + bass loop (no file needed)")
     p.set_defaults(func=cmd_sfx)
 
     p = sub.add_parser("list", help="show upcoming posts and their status")

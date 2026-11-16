@@ -45,3 +45,24 @@ def test_add_sfx_end_to_end(tmp_path):
 def test_plan_chime_can_be_placed_by_hand():
     events = sfx.plan([(3.0, 0.02), (33.0, 0.02)], 34.0, chime_at=33.0)
     assert [(e.t, e.kind) for e in events] == [(3.0, "tick"), (33.0, "chime")]
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
+def test_add_sfx_speed_and_music(tmp_path):
+    video = tmp_path / "v.mp4"
+    song = tmp_path / "song.wav"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=blue:s=160x284:d=3",
+                    "-f", "lavfi", "-i", "color=c=red:s=160x284:d=3", "-filter_complex", "[0][1]concat=n=2:v=1",
+                    "-pix_fmt", "yuv420p", str(video)], check=True)
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "sine=f=440:d=2", str(song)], check=True)
+    out, events = sfx.add_sfx(video, speed=1.5, music=song)
+    whoosh = next(e for e in events if e.kind == "whoosh")
+    assert abs(whoosh.t - 2.0) < 0.15                     # the 3 s cut, sped up 1.5x
+    duration = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
+                                     "csv=p=0", str(out)], capture_output=True, text=True).stdout)
+    assert 3.8 < duration < 4.3                           # 6 s at 1.5x; the 2 s song was looped
+
+
+def test_beat_is_quiet_enough_to_sit_under_effects():
+    loop = sfx._beat(4.0)
+    assert len(loop) == 4 * sfx.RATE and 0.1 < max(abs(v) for v in loop) < 1.0

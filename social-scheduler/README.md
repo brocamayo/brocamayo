@@ -90,7 +90,7 @@ The **developer app** for each platform (the keys in `.env` and the YouTube clie
 | `add-spec FILE.json` | Queue posts described in a JSON file whose fields are `add`'s options (`video`, `title`, `caption`, `accounts`, `platforms`, `tiktok_caption`, `translations`...). One object or a list |
 | `url POST_ID [where]` | Print the link of a published post, YouTube first |
 | `reschedule POST_ID... --at WHEN` | Move queued posts to a new time. `--at now` posts them on the next run, in the order given |
-| `sfx VIDEO [--bed] [--out FILE]` | Add synthesized sound effects to a silent video (whoosh on cuts, tick on text, chime on the reveal; `--bed` adds a quiet pad). Needs ffmpeg. Saves `NAME-sfx.mp4` |
+| `sfx VIDEO [--speed 1.3] [--music FILE \| --beat \| --bed] [--chime-at S] [--out FILE]` | Add sound effects to a silent video (whoosh on cuts, tick on text, chime on the reveal), optionally sped up and with music under it (`--music` = your mp3, `--beat` = synthesized drums and bass, `--bed` = quiet pad). Needs ffmpeg. Saves `NAME-sfx.mp4` |
 | `intake [--mark-seen]` | Hand new `*-packaging.md` files to Claude Code to check and queue (see *Hands-free posting*) |
 | `copy-videos` | Copy waiting videos that live on the Desktop, in Downloads, etc. into the videos folder (`add` does this itself now) |
 
