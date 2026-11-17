@@ -80,6 +80,12 @@ def channel_file(config, account: str) -> Path:
     return config.path(config.settings(account, "youtube")["token_file"]).with_name("youtube_channel.json")
 
 
+def youtube_safe(text: str) -> str:
+    """YouTube rejects titles and descriptions containing < or > ("invalidDescription"), so menu paths
+    like "Settings > Usage" are written with › instead."""
+    return text.replace("<", "‹").replace(">", "›") if text else text
+
+
 def saved_channel(config, account: str) -> dict:
     path = channel_file(config, account)
     try:
@@ -303,8 +309,8 @@ class YouTubePublisher(Publisher):
         s = self.settings
         body = {
             "snippet": {
-                "title": post.youtube_title(),
-                "description": post.youtube_description(),
+                "title": youtube_safe(post.youtube_title()),
+                "description": youtube_safe(post.youtube_description()),
                 "tags": post.youtube_tags(),
                 "categoryId": str(post.option("youtube", "category_id", s.get("category_id", "22"))),
             },
@@ -317,7 +323,8 @@ class YouTubePublisher(Publisher):
         if translations:
             # Viewers whose YouTube is set to one of these languages see that title and description.
             body["snippet"]["defaultLanguage"] = str(post.option("youtube", "language", s.get("language", "en")))
-            body["localizations"] = translations
+            body["localizations"] = {lang: {k: youtube_safe(v) if isinstance(v, str) else v for k, v in loc.items()}
+                                     for lang, loc in translations.items()}
         return body
 
     def publish(self, post: Post, video: Path) -> PublishResult:

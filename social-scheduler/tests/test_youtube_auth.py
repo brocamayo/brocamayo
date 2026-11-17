@@ -461,3 +461,21 @@ def test_login_refresh_problems_wait_instead_of_crashing(project, config, monkey
         monkeypatch.setattr(Credentials, "refresh", boom)
         with pytest.raises(expected):
             yt._credentials(config, "main")
+
+
+def test_angle_brackets_are_swapped_so_youtube_accepts_the_description(project):
+    from socialq.cli import main
+    from socialq.config import load_config
+    from socialq.queue import load_queue
+
+    (project / "videos" / "v.mp4").write_bytes(b"x")
+    assert main(["-c", str(project / "config.yaml"), "add", str(project / "videos" / "v.mp4"),
+                 "--title", "A > B", "--caption", "Where to look: Settings > Usage > Limit resets. <3",
+                 "--translation", "es", "Título", "Configuración > Uso",
+                 "--accounts", "main", "--platforms", "youtube", "--at", "2026-10-01 09:00"]) == 0
+    config = load_config(project / "config.yaml")
+    [post] = load_queue(config)
+    body = yt.YouTubePublisher(config, "main").video_body(post)
+    assert body["snippet"]["title"] == "A › B"
+    assert body["snippet"]["description"].startswith("Where to look: Settings › Usage › Limit resets. ‹3")
+    assert body["localizations"]["es"]["description"] == "Configuración › Uso"
